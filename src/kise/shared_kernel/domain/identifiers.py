@@ -66,5 +66,9 @@ class ItemId(EntityId):
     """Identifies an Item — a thing bought, tracked across expenses."""
 
 
+class LinkedIdentityId(EntityId):
+    """Identifies one sign-in method linked to an Owner (a Google, Apple or Facebook account)."""
+
+
 class BudgetId(EntityId):
     """Identifies a Budget — a monthly spending limit, overall or for one category."""

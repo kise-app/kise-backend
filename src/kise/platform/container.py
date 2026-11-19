@@ -31,10 +31,17 @@ from kise.expense_tracking.application.services import (
     UnitService,
 )
 from kise.expense_tracking.domain.models import default_units
+from kise.identity.application.ports import SocialVerifier
 from kise.identity.application.services import OwnerService
 from kise.identity.domain.events import OwnerRegistered
 from kise.identity.infrastructure.bcrypt_hasher import BcryptPasswordHasher
 from kise.identity.infrastructure.jwt_token_service import JwtTokenService
+from kise.identity.infrastructure.social import (
+    AppleVerifier,
+    FacebookVerifier,
+    GoogleVerifier,
+    ProviderSocialVerifier,
+)
 from kise.platform.clock import SystemClock
 from kise.platform.config import Settings
 from kise.platform.database import build_engine, build_session_factory, create_all
@@ -76,6 +83,7 @@ class Container:
         engine: Engine | None = None,
         language_model: LanguageModel | None = None,
         clock: Clock | None = None,
+        social_verifier: SocialVerifier | None = None,
     ) -> None:
         self._settings = settings
         self._engine = engine or build_engine(settings.database_url, echo=settings.debug)
@@ -91,6 +99,15 @@ class Container:
             settings, language_model
         )
         self._rate_limiter: RateLimiter = InMemoryRateLimiter(settings.assistant_hourly_limit)
+        self._social: SocialVerifier = social_verifier or ProviderSocialVerifier(
+            google=GoogleVerifier(settings.google_client_id_list)
+            if settings.google_client_id_list
+            else None,
+            apple=AppleVerifier(settings.apple_client_id_list)
+            if settings.apple_client_id_list
+            else None,
+            facebook=FacebookVerifier(settings.facebook_app_id, settings.facebook_app_secret),
+        )
 
         self._event_bus = InProcessEventBus()
         self._uow_factory = build_unit_of_work_factory(self._session_factory, self._event_bus)
@@ -178,6 +195,8 @@ class Container:
             tokens=self._tokens,
             clock=self._clock,
             uow=uow,
+            linked_identities=uow.linked_identities,
+            social=self._social,
         )
         categories = CategoryService(
             categories=uow.categories,
@@ -251,6 +270,8 @@ class Container:
             tokens=self._tokens,
             clock=self._clock,
             uow=uow,
+            linked_identities=uow.linked_identities,
+            social=self._social,
         )
         return uow, service
 

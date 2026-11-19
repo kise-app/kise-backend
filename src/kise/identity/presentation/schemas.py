@@ -14,6 +14,7 @@ from kise.identity.application.commands import (
     AuthenticateOwnerCommand,
     ChangePasswordCommand,
     RegisterOwnerCommand,
+    SocialSignInCommand,
     UpdatePreferencesCommand,
 )
 from kise.identity.application.views import AuthenticatedOwner, OwnerProfile
@@ -36,6 +37,42 @@ class RegisterRequest(BaseModel):
             language=self.language,
             currency=self.currency,
         )
+
+
+class SocialSignInRequest(BaseModel):
+    provider: str = Field(examples=["google", "apple", "facebook"])
+    token: str = Field(
+        min_length=1,
+        max_length=8192,
+        description="Google/Apple: the ID token. Facebook: the access token.",
+    )
+    nonce: str | None = Field(
+        default=None, max_length=256, description="Apple: the raw nonce whose SHA-256 was sent"
+    )
+    display_name: str | None = Field(default=None, max_length=120)
+    calendar: str | None = None
+    language: str | None = None
+    currency: str | None = None
+
+    def to_command(self) -> SocialSignInCommand:
+        return SocialSignInCommand(
+            provider=self.provider,
+            token=self.token,
+            nonce=self.nonce,
+            display_name=self.display_name,
+            calendar=self.calendar,
+            language=self.language,
+            currency=self.currency,
+        )
+
+
+class ProvidersResponse(BaseModel):
+    """Which sign-in methods this server offers. Email and password is always on."""
+
+    password: bool = True
+    google: bool
+    apple: bool
+    facebook: bool
 
 
 class LoginRequest(BaseModel):
@@ -100,6 +137,8 @@ class AuthResponse(BaseModel):
     token: str
     expires_at: str
     owner: ProfileResponse
+    #: True when the sign-in created the account.
+    created: bool = False
 
     @classmethod
     def of(cls, authenticated: AuthenticatedOwner) -> AuthResponse:
@@ -107,4 +146,5 @@ class AuthResponse(BaseModel):
             token=authenticated.token.value,
             expires_at=authenticated.token.expires_at.isoformat(),
             owner=ProfileResponse.of(authenticated.profile),
+            created=authenticated.created,
         )

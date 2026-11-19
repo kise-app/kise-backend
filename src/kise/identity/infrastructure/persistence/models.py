@@ -10,12 +10,12 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kise.platform.database import Base
 
-__all__ = ["OwnerModel"]
+__all__ = ["LinkedIdentityModel", "OwnerModel"]
 
 
 class OwnerModel(Base):
@@ -34,3 +34,25 @@ class OwnerModel(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"OwnerModel(id={self.id}, email={self.email!r})"
+
+
+class LinkedIdentityModel(Base):
+    """A Google, Apple or Facebook account linked to an Owner."""
+
+    __tablename__ = "linked_identities"
+    __table_args__ = (
+        # One provider account belongs to one Owner.
+        UniqueConstraint("provider", "subject", name="linked_identity_provider_subject"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    owner_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("owners.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(16))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"LinkedIdentityModel(provider={self.provider!r}, owner_id={self.owner_id})"

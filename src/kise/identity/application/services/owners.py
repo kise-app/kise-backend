@@ -11,13 +11,22 @@ Rules stay in the aggregate — this layer coordinates, it does not decide.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+
 from kise.identity.application.commands import (
     AuthenticateOwnerCommand,
     ChangePasswordCommand,
     RegisterOwnerCommand,
+    SocialSignInCommand,
     UpdatePreferencesCommand,
 )
-from kise.identity.application.ports import PasswordHasher, TokenService
+from kise.identity.application.ports import (
+    PasswordHasher,
+    SocialVerifier,
+    TokenService,
+    VerifiedSocialAccount,
+)
 from kise.identity.application.views import (
     AuthenticatedOwner,
     OwnerProfile,
@@ -26,9 +35,21 @@ from kise.identity.domain.errors import (
     CurrentPasswordIncorrect,
     EmailAlreadyRegistered,
     InvalidCredentials,
+    SignInWithPassword,
+    SocialProviderDisabled,
 )
-from kise.identity.domain.models import EmailAddress, Owner, Preferences
-from kise.identity.infrastructure.persistence.repository import SqlAlchemyOwnerRepository
+from kise.identity.domain.models import (
+    MAX_DISPLAY_NAME_LENGTH,
+    EmailAddress,
+    LinkedIdentity,
+    Owner,
+    Preferences,
+    SocialProvider,
+)
+from kise.identity.infrastructure.persistence.repository import (
+    SqlAlchemyLinkedIdentityRepository,
+    SqlAlchemyOwnerRepository,
+)
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
 from kise.shared_kernel.domain.errors import InvariantViolation
 from kise.shared_kernel.domain.identifiers import OwnerId
@@ -44,7 +65,12 @@ class OwnerService:
         tokens: TokenService,
         clock: Clock,
         uow: UnitOfWork,
+        *,
+        linked_identities: SqlAlchemyLinkedIdentityRepository | None = None,
+        social: SocialVerifier | None = None,
     ) -> None:
+        self._linked = linked_identities
+        self._social = social
         self._owners = owners
         self._hasher = hasher
         self._tokens = tokens
@@ -94,6 +120,101 @@ class OwnerService:
         if owner is None or not self._hasher.verify(command.password, owner.password_hash):
             raise InvalidCredentials
         return AuthenticatedOwner(self._profile(owner), self._tokens.issue(owner.id))
+
+    def enabled_social_providers(self) -> set[SocialProvider]:
+        return self._social.enabled() if self._social is not None else set()
+
+    def sign_in_with_social(self, command: SocialSignInCommand) -> AuthenticatedOwner:
+        """Sign in with Google, Apple or Facebook — making the account on first use.
+
+        1. The token is verified by the provider's rules (signature, audience, expiry).
+        2. A linked account signs straight in.
+        3. Otherwise, an existing Owner with the same email is linked — but only when the provider
+           has *confirmed* that email (Google and Apple say so explicitly). Without that, anyone
+           who could set an email on a Facebook account could take over a Kise account, so the
+           person is asked to sign in with their password instead.
+        4. Otherwise a new Owner is registered, which seeds the default categories as usual.
+        """
+        provider = SocialProvider.parse(command.provider)
+        if self._social is None or self._linked is None:
+            raise SocialProviderDisabled(provider.value)
+        account = self._social.verify(provider, command.token, nonce=command.nonce)
+
+        linked = self._linked.find(provider, account.subject)
+        if linked is not None:
+            owner = self._owners.get(linked.owner_id)
+            return AuthenticatedOwner(self._profile(owner), self._tokens.issue(owner.id))
+
+        email = self._email_for(account)
+        existing = self._owners.find_by_email(email)
+        if existing is not None:
+            if not (account.email_verified and account.email):
+                raise SignInWithPassword(str(email))
+            self._link(existing, account)
+            self._uow.commit()
+            return AuthenticatedOwner(self._profile(existing), self._tokens.issue(existing.id))
+
+        preferences = Preferences(
+            **{
+                key: value
+                for key, value in (
+                    ("calendar", command.calendar),
+                    ("language", command.language),
+                    ("currency", command.currency),
+                )
+                if value is not None
+            }
+        )
+        owner = Owner.register(
+            email=email,
+            # No password: the account is reached through the provider. A random secret nobody
+            # knows fills the slot, so password sign-in fails cleanly rather than matching "".
+            password_hash=self._hasher.hash(secrets.token_urlsafe(32)),
+            display_name=self._display_name(command.display_name, account, email),
+            registered_at=self._clock.now(),
+            preferences=preferences,
+        )
+        self._owners.add(owner)
+        self._link(owner, account)
+        self._uow.commit()
+        return AuthenticatedOwner(
+            self._profile(owner), self._tokens.issue(owner.id), created=True
+        )
+
+    def _link(self, owner: Owner, account: VerifiedSocialAccount) -> None:
+        assert self._linked is not None  # checked by the caller
+        self._linked.add(
+            LinkedIdentity.link(
+                owner_id=owner.id,
+                provider=account.provider,
+                subject=account.subject,
+                email=account.email,
+                linked_at=self._clock.now(),
+            )
+        )
+
+    @staticmethod
+    def _email_for(account: VerifiedSocialAccount) -> EmailAddress:
+        """The provider's email, or — when it shares none (Facebook can withhold it) — a stand-in
+        under a domain Kise controls, unique to that provider account and never mailed."""
+        if account.email:
+            try:
+                return EmailAddress(account.email)
+            except Exception:  # noqa: BLE001 - a malformed provider email is just "no email"
+                pass
+        digest = hashlib.sha256(f"{account.provider.value}:{account.subject}".encode()).hexdigest()
+        return EmailAddress(f"{account.provider.value}-{digest[:24]}@users.kise.invalid")
+
+    @staticmethod
+    def _display_name(
+        given: str | None, account: VerifiedSocialAccount, email: EmailAddress
+    ) -> str:
+        for candidate in (given, account.name):
+            cleaned = " ".join((candidate or "").split())
+            if cleaned:
+                return cleaned[:MAX_DISPLAY_NAME_LENGTH]
+        local = str(email).split("@", 1)[0]
+        return local[:MAX_DISPLAY_NAME_LENGTH] if "users.kise.invalid" not in str(email) else "Kise"
 
     def update_preferences(self, command: UpdatePreferencesCommand) -> OwnerProfile:
         """Change the display name, calendar or language.

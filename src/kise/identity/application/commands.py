@@ -31,6 +31,23 @@ class AuthenticateOwnerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SocialSignInCommand:
+    """Sign in (or register) with a provider's token.
+
+    ``display_name`` matters for Apple, which sends the person's name only to the app and only the
+    first time; ``calendar``/``language``/``currency`` are used only when a new account is made.
+    """
+
+    provider: str
+    token: str
+    nonce: str | None = None
+    display_name: str | None = None
+    calendar: str | None = None
+    language: str | None = None
+    currency: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ChangePasswordCommand:
     owner_id: OwnerId
     current_password: str

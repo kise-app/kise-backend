@@ -52,6 +52,28 @@ class Settings(BaseSettings):
     # Requests per Owner per rolling hour, per process. 0 disables the limit.
     assistant_hourly_limit: int = 30
 
+    # Social sign-in. Each provider is off until its ids are set; the app only shows buttons for
+    # the providers GET /api/auth/providers reports.
+    # Comma-separated OAuth client ids whose ID tokens are accepted: the iOS client id and the
+    # Android/web ("server") client id from Google Cloud.
+    google_client_ids: str = ""
+    # Comma-separated: the iOS bundle id (and a Services ID, if web sign-in is added later).
+    apple_client_ids: str = ""
+    facebook_app_id: str = ""
+    facebook_app_secret: str = ""
+
+    @staticmethod
+    def _split(value: str) -> list[str]:
+        return [part.strip() for part in value.split(",") if part.strip()]
+
+    @property
+    def google_client_id_list(self) -> list[str]:
+        return self._split(self.google_client_ids)
+
+    @property
+    def apple_client_id_list(self) -> list[str]:
+        return self._split(self.apple_client_ids)
+
     @property
     def assistant_enabled(self) -> bool:
         return self.assistant_provider.lower() == "gemini" and bool(self.gemini_api_key)

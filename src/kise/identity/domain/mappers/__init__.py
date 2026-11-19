@@ -9,6 +9,7 @@ model type is left open on purpose. Same reasoning as ``OwnerRepository``: the v
 the model, the mechanism does not.
 """
 
+from kise.identity.domain.mappers.linked_identity_mapping import LinkedIdentityMapping
 from kise.identity.domain.mappers.owner_mapping import OwnerMapping
 
-__all__ = ["OwnerMapping"]
+__all__ = ["LinkedIdentityMapping", "OwnerMapping"]

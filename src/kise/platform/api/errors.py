@@ -15,7 +15,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
-from kise.identity.domain.errors import InvalidCredentials, InvalidToken
+from kise.identity.domain.errors import InvalidCredentials, InvalidToken, SocialSignInFailed
 from kise.shared_kernel.domain.calendar.ethiopian import EthiopianDateError
 from kise.shared_kernel.domain.errors import (
     Conflict,
@@ -34,6 +34,7 @@ from kise.shared_kernel.domain.errors import (
 _STATUS_BY_TYPE: tuple[tuple[type[DomainError], int], ...] = (
     (InvalidCredentials, status.HTTP_401_UNAUTHORIZED),
     (InvalidToken, status.HTTP_401_UNAUTHORIZED),
+    (SocialSignInFailed, status.HTTP_401_UNAUTHORIZED),
     (PermissionDenied, status.HTTP_403_FORBIDDEN),
     (NotFound, status.HTTP_404_NOT_FOUND),
     (Conflict, status.HTTP_409_CONFLICT),

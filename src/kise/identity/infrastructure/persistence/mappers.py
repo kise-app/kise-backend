@@ -1,11 +1,17 @@
-"""Owner <-> OwnerModel."""
+"""Owner <-> OwnerModel, LinkedIdentity <-> LinkedIdentityModel."""
 
 from __future__ import annotations
 
-from kise.identity.domain.models import EmailAddress, Owner, PasswordHash, Preferences
-from kise.identity.infrastructure.persistence.models import OwnerModel
+from kise.identity.domain.models import (
+    EmailAddress,
+    LinkedIdentity,
+    Owner,
+    PasswordHash,
+    Preferences,
+)
+from kise.identity.infrastructure.persistence.models import LinkedIdentityModel, OwnerModel
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind, Language
-from kise.shared_kernel.domain.identifiers import OwnerId
+from kise.shared_kernel.domain.identifiers import LinkedIdentityId, OwnerId
 
 
 class OwnerMapper:
@@ -48,3 +54,31 @@ class OwnerMapper:
         entity.preferred_calendar = owner.preferences.calendar.value
         entity.preferred_language = owner.preferences.language.value
         entity.currency = owner.preferences.currency
+
+
+class LinkedIdentityMapper:
+    @staticmethod
+    def to_model(identity: LinkedIdentity) -> LinkedIdentityModel:
+        return LinkedIdentityModel(
+            id=identity.id.value,
+            owner_id=identity.owner_id.value,
+            provider=identity.provider.value,
+            subject=identity.subject,
+            email=identity.email,
+            linked_at=identity.linked_at,
+        )
+
+    @staticmethod
+    def to_domain(entity: LinkedIdentityModel) -> LinkedIdentity:
+        return LinkedIdentity(
+            LinkedIdentityId(entity.id),
+            owner_id=OwnerId(entity.owner_id),
+            provider=entity.provider,
+            subject=entity.subject,
+            email=entity.email,
+            linked_at=entity.linked_at,
+        )
+
+    @staticmethod
+    def update_model(entity: LinkedIdentityModel, identity: LinkedIdentity) -> None:
+        entity.email = identity.email

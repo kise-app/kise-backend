@@ -35,3 +35,5 @@ class AuthenticatedOwner:
 
     profile: OwnerProfile
     token: AccessToken
+    #: True when this sign-in made a new account (social sign-in can do either).
+    created: bool = False

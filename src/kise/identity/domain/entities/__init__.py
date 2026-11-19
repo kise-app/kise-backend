@@ -1,8 +1,10 @@
 """Entities of the Identity context — identity by id, mutable, rule-carrying.
 
-``Owner`` is the only aggregate root here. Value objects live next door in ``value_objects.py``.
+Aggregate roots: ``Owner``, and ``LinkedIdentity`` (a Google, Apple or Facebook account an Owner
+signs in with). Value objects live next door in ``value_objects.py``.
 """
 
+from kise.identity.domain.entities.linked_identity import LinkedIdentity
 from kise.identity.domain.entities.owner import Owner
 
-__all__ = ["Owner"]
+__all__ = ["LinkedIdentity", "Owner"]

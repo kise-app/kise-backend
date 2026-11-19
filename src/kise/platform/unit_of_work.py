@@ -25,7 +25,10 @@ from kise.expense_tracking.infrastructure.persistence.repositories import (
     SqlAlchemyItemRepository,
     SqlAlchemyUnitOfMeasurementRepository,
 )
-from kise.identity.infrastructure.persistence.repository import SqlAlchemyOwnerRepository
+from kise.identity.infrastructure.persistence.repository import (
+    SqlAlchemyLinkedIdentityRepository,
+    SqlAlchemyOwnerRepository,
+)
 from kise.shared_kernel.application.ports import (
     EventBus,
     TransactionParticipant,
@@ -93,6 +96,7 @@ class KiseUnitOfWork(SqlAlchemyUnitOfWork):
     def __init__(self, session: Session, event_bus: EventBus | None = None) -> None:
         super().__init__(session, event_bus)
         self.owners = SqlAlchemyOwnerRepository(session)
+        self.linked_identities = SqlAlchemyLinkedIdentityRepository(session)
         self.categories = SqlAlchemyCategoryRepository(session)
         self.expenses = SqlAlchemyExpenseRepository(session)
         self.fixed_expenses = SqlAlchemyFixedExpenseRepository(session)
@@ -101,6 +105,7 @@ class KiseUnitOfWork(SqlAlchemyUnitOfWork):
         self.budgets = SqlAlchemyBudgetRepository(session)
         for repository in (
             self.owners,
+            self.linked_identities,
             self.categories,
             self.expenses,
             self.fixed_expenses,

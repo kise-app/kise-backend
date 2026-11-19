@@ -10,13 +10,14 @@ Not to be confused with this context's ``infrastructure/persistence/models.py``,
 database tables. These classes know nothing about SQLAlchemy; mappers translate between the two.
 """
 
-from kise.identity.domain.entities import Owner
+from kise.identity.domain.entities import LinkedIdentity, Owner
 from kise.identity.domain.value_objects import (
     MAX_DISPLAY_NAME_LENGTH,
     MAX_EMAIL_LENGTH,
     EmailAddress,
     PasswordHash,
     Preferences,
+    SocialProvider,
     clean_display_name,
 )
 
@@ -24,8 +25,10 @@ __all__ = [
     "MAX_DISPLAY_NAME_LENGTH",
     "MAX_EMAIL_LENGTH",
     "EmailAddress",
+    "LinkedIdentity",
     "Owner",
     "PasswordHash",
     "Preferences",
+    "SocialProvider",
     "clean_display_name",
 ]

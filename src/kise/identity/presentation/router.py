@@ -15,7 +15,9 @@ from kise.identity.presentation.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     ProfileResponse,
+    ProvidersResponse,
     RegisterRequest,
+    SocialSignInRequest,
     UpdateProfileRequest,
 )
 from kise.platform.api.dependencies import CurrentOwner, ServicesDep
@@ -38,6 +40,26 @@ def login(request: LoginRequest, services: ServicesDep) -> AuthResponse:
     """Sign in. A wrong password and an unknown account give the same 401, on purpose."""
     authenticated = services.owners.authenticate(request.to_command())
     return AuthResponse.of(authenticated)
+
+
+@router.get("/providers", response_model=ProvidersResponse)
+def providers(services: ServicesDep) -> ProvidersResponse:
+    """Which sign-in buttons the app should show."""
+    enabled = {p.value for p in services.owners.enabled_social_providers()}
+    return ProvidersResponse(
+        google="google" in enabled, apple="apple" in enabled, facebook="facebook" in enabled
+    )
+
+
+@router.post("/social", response_model=AuthResponse)
+def social_sign_in(request: SocialSignInRequest, services: ServicesDep) -> AuthResponse:
+    """Sign in with Google, Apple or Facebook; the first time makes the account (``created``).
+
+    401 ``social_sign_in_failed`` when the token does not check out, 409 ``sign_in_with_password``
+    when an account with that email exists and the provider did not verify the email, 503
+    ``social_provider_disabled`` when the provider is not set up here.
+    """
+    return AuthResponse.of(services.owners.sign_in_with_social(request.to_command()))
 
 
 @router.get("/me", response_model=ProfileResponse)

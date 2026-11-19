@@ -1,6 +1,7 @@
 """Ports the Identity application layer depends on.
 
-Both exist so that no rule ever contains a hashing algorithm or a token format. The domain holds a
+They exist so that no rule ever contains a hashing algorithm, a token format, or a provider's
+key-verification protocol. The domain holds a
 ``PasswordHash`` value object and nothing else about credentials.
 """
 
@@ -10,7 +11,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 
-from kise.identity.domain.models import PasswordHash
+from kise.identity.domain.models import PasswordHash, SocialProvider
 from kise.shared_kernel.domain.identifiers import OwnerId
 
 
@@ -49,3 +50,32 @@ class TokenService(ABC):
     @abstractmethod
     def read(self, token: str) -> OwnerId:
         """Return the Owner the token identifies, or raise ``InvalidToken``."""
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedSocialAccount:
+    """What a provider vouches for, after its token has been checked."""
+
+    provider: SocialProvider
+    subject: str
+    email: str | None = None
+    #: True only when the provider says it has confirmed the address belongs to this person.
+    email_verified: bool = False
+    name: str | None = None
+
+
+class SocialVerifier(ABC):
+    """Checks a token from Google, Apple or Facebook and says whose account it is."""
+
+    @abstractmethod
+    def enabled(self) -> set[SocialProvider]:
+        """The providers this server is configured for."""
+
+    @abstractmethod
+    def verify(
+        self, provider: SocialProvider, token: str, *, nonce: str | None = None
+    ) -> VerifiedSocialAccount:
+        """The account behind ``token``.
+
+        Raises ``SocialSignInFailed`` for a bad token, ``SocialProviderDisabled`` if not set up.
+        """

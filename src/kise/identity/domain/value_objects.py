@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from enum import Enum
 
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind, Language
 from kise.shared_kernel.domain.errors import ValidationError
@@ -106,3 +107,22 @@ def clean_display_name(raw: str) -> str:
             field="display_name",
         )
     return cleaned
+
+
+class SocialProvider(str, Enum):
+    """The sign-in providers Kise accepts besides email and password."""
+
+    GOOGLE = "google"
+    APPLE = "apple"
+    FACEBOOK = "facebook"
+
+    @classmethod
+    def parse(cls, value: SocialProvider | str) -> SocialProvider:
+        if isinstance(value, SocialProvider):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError as exc:
+            raise ValidationError(
+                f"Unknown sign-in provider {value!r}", field="provider"
+            ) from exc
