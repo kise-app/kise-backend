@@ -10,11 +10,13 @@ from __future__ import annotations
 import pytest
 
 from kise.expense_tracking.domain.mappers import (
+    BudgetMapping,
     CategoryMapping,
     ExpenseMapping,
     FixedExpenseMapping,
 )
 from kise.expense_tracking.infrastructure.persistence.mappers import (
+    BudgetMapper,
     CategoryMapper,
     ExpenseMapper,
     FixedExpenseMapper,
@@ -29,6 +31,7 @@ IMPLEMENTATIONS = [
     (CategoryMapper, CategoryMapping),
     (ExpenseMapper, ExpenseMapping),
     (FixedExpenseMapper, FixedExpenseMapping),
+    (BudgetMapper, BudgetMapping),
 ]
 
 

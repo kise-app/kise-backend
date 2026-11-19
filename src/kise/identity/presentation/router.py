@@ -8,10 +8,11 @@ to the single error handler, which turns them into 409 / 401.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 
 from kise.identity.presentation.schemas import (
     AuthResponse,
+    ChangePasswordRequest,
     LoginRequest,
     ProfileResponse,
     RegisterRequest,
@@ -52,3 +53,12 @@ def update_me(
     """Change display name, calendar or language. Currency is deliberately not editable here."""
     profile = services.owners.update_preferences(request.to_command(current_owner.owner_id))
     return ProfileResponse.of(profile)
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    request: ChangePasswordRequest, current_owner: CurrentOwner, services: ServicesDep
+) -> Response:
+    """Change the password. A wrong current password is a 422 ``current_password_incorrect``."""
+    services.owners.change_password(request.to_command(current_owner.owner_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

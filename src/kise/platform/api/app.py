@@ -2,13 +2,9 @@
 
 ``create_app`` builds one FastAPI application: it constructs the container (which wires every
 adapter, the event bus and the seed-categories subscriber), stores it on ``app.state`` so the
-dependencies can reach it, installs the single domain-error handler, adds CORS, and mounts the three
-routers that have services behind them.
-
-Deliberately *not* mounted yet: fixed-expenses, monthly summary and the reporting/calendar queries.
-Their domain model exists but no application service does, so there is nothing to route to. This is
-the documented gap in the README, not an oversight — the factory mounts a router the moment its
-service lands, and nothing else here has to change.
+dependencies can reach it, installs the single domain-error handler, adds CORS, and mounts every
+router: auth, categories, expenses, fixed expenses, units, items, budgets and reports (monthly
+summary and item usage).
 
 Run it with::
 
@@ -25,8 +21,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from kise.expense_tracking.presentation.routers.budgets import router as budgets_router
 from kise.expense_tracking.presentation.routers.categories import router as categories_router
 from kise.expense_tracking.presentation.routers.expenses import router as expenses_router
+from kise.expense_tracking.presentation.routers.fixed_expenses import (
+    router as fixed_expenses_router,
+)
 from kise.expense_tracking.presentation.routers.items import router as items_router
 from kise.expense_tracking.presentation.routers.reports import router as reports_router
 from kise.expense_tracking.presentation.routers.units import router as units_router
@@ -79,9 +79,11 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(categories_router)
     app.include_router(expenses_router)
+    app.include_router(fixed_expenses_router)
     app.include_router(units_router)
     app.include_router(items_router)
     app.include_router(reports_router)
+    app.include_router(budgets_router)
 
     # The landing page's assets: the favicon and, under static/styles/, the stylesheet compiled by
     # `make web-css`.

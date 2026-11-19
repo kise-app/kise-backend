@@ -10,6 +10,7 @@ across use cases.
 from __future__ import annotations
 
 from kise.expense_tracking.domain.models import (
+    Budget,
     Category,
     Expense,
     FixedExpense,
@@ -19,6 +20,7 @@ from kise.expense_tracking.domain.models import (
 )
 from kise.expense_tracking.domain.value_objects import Color, PaymentMethod, Quantity
 from kise.expense_tracking.infrastructure.persistence.models import (
+    BudgetModel,
     CategoryModel,
     ExpenseModel,
     FixedExpenseModel,
@@ -30,6 +32,7 @@ from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.calendar.period import Period
 from kise.shared_kernel.domain.calendar.spend_date import SpendDate
 from kise.shared_kernel.domain.identifiers import (
+    BudgetId,
     CategoryId,
     ExpenseId,
     FixedExpenseId,
@@ -309,3 +312,29 @@ class ItemMapper:
         entity.name_am = item.name_am
         entity.default_unit_id = item.default_unit_id.value if item.default_unit_id else None
         entity.is_archived = item.is_archived
+
+
+class BudgetMapper:
+    @staticmethod
+    def to_model(budget: Budget) -> BudgetModel:
+        amount_minor, currency = money_to_columns(budget.amount)
+        return BudgetModel(
+            id=budget.id.value,
+            owner_id=budget.owner_id.value,
+            category_id=budget.category_id.value if budget.category_id else None,
+            amount_minor=amount_minor,
+            currency=currency,
+        )
+
+    @staticmethod
+    def to_domain(entity: BudgetModel) -> Budget:
+        return Budget(
+            BudgetId(entity.id),
+            owner_id=OwnerId(entity.owner_id),
+            category_id=CategoryId(entity.category_id) if entity.category_id else None,
+            amount=money_from_columns(entity.amount_minor, entity.currency),
+        )
+
+    @staticmethod
+    def update_model(entity: BudgetModel, budget: Budget) -> None:
+        entity.amount_minor, entity.currency = money_to_columns(budget.amount)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kise.shared_kernel.domain.errors import Conflict, DomainError, NotFound
+from kise.shared_kernel.domain.errors import Conflict, DomainError, NotFound, ValidationError
 
 
 class OwnerNotFound(NotFound):
@@ -23,6 +23,15 @@ class InvalidCredentials(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Email or password is incorrect")
+
+
+class CurrentPasswordIncorrect(ValidationError):
+    """Changing the password needs the current one; this is not a sign-in, so it is a 422."""
+
+    code = "current_password_incorrect"
+
+    def __init__(self) -> None:
+        super().__init__("The current password is incorrect", field="current_password")
 
 
 class InvalidToken(DomainError):

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from kise.identity.application.commands import (
     AuthenticateOwnerCommand,
+    ChangePasswordCommand,
     RegisterOwnerCommand,
     UpdatePreferencesCommand,
 )
@@ -21,10 +22,15 @@ from kise.identity.application.views import (
     AuthenticatedOwner,
     OwnerProfile,
 )
-from kise.identity.domain.errors import EmailAlreadyRegistered, InvalidCredentials
+from kise.identity.domain.errors import (
+    CurrentPasswordIncorrect,
+    EmailAlreadyRegistered,
+    InvalidCredentials,
+)
 from kise.identity.domain.models import EmailAddress, Owner, Preferences
 from kise.identity.infrastructure.persistence.repository import SqlAlchemyOwnerRepository
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
+from kise.shared_kernel.domain.errors import InvariantViolation
 from kise.shared_kernel.domain.identifiers import OwnerId
 
 
@@ -104,6 +110,20 @@ class OwnerService:
             owner.prefer_language(command.language)
         self._uow.commit()
         return self._profile(owner)
+
+    def change_password(self, command: ChangePasswordCommand) -> None:
+        """Replace the password, proving the current one first.
+
+        Tokens already issued stay valid until they expire: Kise v1 has no revocation list.
+        """
+        owner = self._owners.get(command.owner_id)
+        if not self._hasher.verify(command.current_password, owner.password_hash):
+            raise CurrentPasswordIncorrect
+        # Hashes are salted, so "same password" must be checked against the plain text.
+        if self._hasher.verify(command.new_password, owner.password_hash):
+            raise InvariantViolation("The new password must differ from the current one")
+        owner.change_password(self._hasher.hash(command.new_password))
+        self._uow.commit()
 
     # -- queries --------------------------------------------------------
     def profile(self, owner_id: OwnerId) -> OwnerProfile:

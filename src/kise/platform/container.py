@@ -18,10 +18,13 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from kise.expense_tracking.application.services import (
+    BudgetService,
     CategoryService,
     ExpenseService,
+    FixedExpenseService,
     ItemService,
     ItemUsageService,
+    MonthlySummaryService,
     UnitService,
 )
 from kise.expense_tracking.domain.models import default_units
@@ -55,6 +58,9 @@ class RequestServices:
     items: ItemService
     units: UnitService
     item_usage: ItemUsageService
+    fixed_expenses: FixedExpenseService
+    summary: MonthlySummaryService
+    budgets: BudgetService
 
 
 class Container:
@@ -115,8 +121,16 @@ class Container:
     def open_unit_of_work(self) -> KiseUnitOfWork:
         return self._uow_factory()
 
-    def build_services(self, uow: KiseUnitOfWork) -> RequestServices:
-        """Assemble the services for one request, all sharing ``uow``."""
+    def build_services(
+        self, uow: KiseUnitOfWork, *, currency: str | None = None
+    ) -> RequestServices:
+        """Assemble the services for one request, all sharing ``uow``.
+
+        ``currency`` is the signed-in Owner's currency, so money they record is written in the
+        currency they registered with. Unauthenticated routes (register, login) fall back to the
+        configured default.
+        """
+        currency = currency or self._settings.default_currency
         owners = OwnerService(
             owners=uow.owners,
             hasher=self._hasher,
@@ -136,7 +150,7 @@ class Container:
             uow=uow,
             items=uow.items,
             units=uow.units,
-            currency=self._settings.default_currency,
+            currency=currency,
         )
         items = ItemService(
             items=uow.items,
@@ -149,7 +163,27 @@ class Container:
             expenses=uow.expenses,
             items=uow.items,
             units=uow.units,
-            currency=self._settings.default_currency,
+            currency=currency,
+        )
+        fixed_expenses = FixedExpenseService(
+            fixed_expenses=uow.fixed_expenses,
+            categories=uow.categories,
+            uow=uow,
+            clock=self._clock,
+            currency=currency,
+        )
+        summary = MonthlySummaryService(
+            expenses=uow.expenses,
+            fixed_expenses=uow.fixed_expenses,
+            categories=uow.categories,
+            budgets=uow.budgets,
+            currency=currency,
+        )
+        budgets = BudgetService(
+            budgets=uow.budgets,
+            categories=uow.categories,
+            uow=uow,
+            currency=currency,
         )
         return RequestServices(
             uow=uow,
@@ -159,6 +193,9 @@ class Container:
             items=items,
             units=units,
             item_usage=item_usage,
+            fixed_expenses=fixed_expenses,
+            summary=summary,
+            budgets=budgets,
         )
 
     def owner_service_for_token(self) -> tuple[KiseUnitOfWork, OwnerService]:

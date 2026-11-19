@@ -30,7 +30,7 @@ from kise.expense_tracking.presentation.schemas import (
     RecordExpenseRequest,
     UpdateExpenseRequest,
 )
-from kise.platform.api.dependencies import CurrentOwner, ServicesDep
+from kise.platform.api.dependencies import CurrentOwner, OwnerServicesDep
 from kise.shared_kernel.domain.identifiers import CategoryId, ExpenseId
 
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 @router.get("", response_model=ExpensePageResponse)
 def list_expenses(
     owner: CurrentOwner,
-    services: ServicesDep,
+    services: OwnerServicesDep,
     since: str | None = Query(default=None, description="Start date, inclusive"),
     until: str | None = Query(default=None, description="End date, inclusive"),
     date_calendar: str = Query(
@@ -49,6 +49,10 @@ def list_expenses(
     period_month: int | None = Query(default=None, ge=1, le=13),
     period_calendar: str = Query(default="ethiopian"),
     category_id: Annotated[list[str] | None, Query()] = None,
+    payment_method: Annotated[list[str] | None, Query()] = None,
+    q: str | None = Query(
+        default=None, max_length=100, description="Text to find in the note or the item name"
+    ),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> ExpensePageResponse:
@@ -63,6 +67,8 @@ def list_expenses(
         until=DateInput(value=until, calendar=date_calendar) if until else None,
         period=period,
         category_ids=tuple(CategoryId.parse(cid) for cid in (category_id or ())),
+        payment_methods=tuple(payment_method or ()),
+        search=q,
         limit=limit,
         offset=offset,
     )
@@ -71,7 +77,7 @@ def list_expenses(
 
 @router.post("", response_model=ExpenseResponse, status_code=status.HTTP_201_CREATED)
 def record_expense(
-    request: RecordExpenseRequest, owner: CurrentOwner, services: ServicesDep
+    request: RecordExpenseRequest, owner: CurrentOwner, services: OwnerServicesDep
 ) -> ExpenseResponse:
     view = services.expenses.record(request.to_command(owner.owner_id))
     return ExpenseResponse.of(view)
@@ -79,7 +85,7 @@ def record_expense(
 
 @router.get("/{expense_id}", response_model=ExpenseResponse)
 def get_expense(
-    expense_id: str, owner: CurrentOwner, services: ServicesDep
+    expense_id: str, owner: CurrentOwner, services: OwnerServicesDep
 ) -> ExpenseResponse:
     view = services.expenses.get(owner.owner_id, ExpenseId.parse(expense_id))
     return ExpenseResponse.of(view)
@@ -90,7 +96,7 @@ def update_expense(
     expense_id: str,
     request: UpdateExpenseRequest,
     owner: CurrentOwner,
-    services: ServicesDep,
+    services: OwnerServicesDep,
 ) -> ExpenseResponse:
     command = request.to_command(owner.owner_id, ExpenseId.parse(expense_id))
     view = services.expenses.update(command)
@@ -99,7 +105,7 @@ def update_expense(
 
 @router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_expense(
-    expense_id: str, owner: CurrentOwner, services: ServicesDep
+    expense_id: str, owner: CurrentOwner, services: OwnerServicesDep
 ) -> Response:
     services.expenses.delete(owner.owner_id, ExpenseId.parse(expense_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

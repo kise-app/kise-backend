@@ -7,13 +7,15 @@ someone else's data.
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from kise.expense_tracking.application.commands import ExpenseFilter
 from kise.expense_tracking.domain.errors import (
+    BudgetNotFound,
     CategoryNotFound,
     ExpenseNotFound,
     FixedExpenseNotFound,
@@ -21,6 +23,7 @@ from kise.expense_tracking.domain.errors import (
     UnitNotFound,
 )
 from kise.expense_tracking.domain.models import (
+    Budget,
     Category,
     Expense,
     FixedExpense,
@@ -28,6 +31,7 @@ from kise.expense_tracking.domain.models import (
     UnitOfMeasurement,
 )
 from kise.expense_tracking.infrastructure.persistence.mappers import (
+    BudgetMapper,
     CategoryMapper,
     ExpenseMapper,
     FixedExpenseMapper,
@@ -35,6 +39,7 @@ from kise.expense_tracking.infrastructure.persistence.mappers import (
     UnitOfMeasurementMapper,
 )
 from kise.expense_tracking.infrastructure.persistence.models import (
+    BudgetModel,
     CategoryModel,
     ExpenseModel,
     FixedExpenseModel,
@@ -128,6 +133,28 @@ class SqlAlchemyExpenseRepository(TrackingRepository[Expense]):
             statement = statement.where(
                 ExpenseModel.category_id.in_([c.value for c in criteria.category_ids])
             )
+        if criteria.payment_methods:
+            statement = statement.where(
+                ExpenseModel.payment_method.in_([m.lower() for m in criteria.payment_methods])
+            )
+        search = (criteria.search or "").strip()
+        if search:
+            # LIKE wildcards in the user's text are literal: "50%" means fifty percent.
+            escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            matching_items = select(ItemModel.id).where(
+                ItemModel.owner_id == criteria.owner_id.value,
+                or_(
+                    ItemModel.name.ilike(pattern, escape="\\"),
+                    ItemModel.name_am.ilike(pattern, escape="\\"),
+                ),
+            )
+            statement = statement.where(
+                or_(
+                    ExpenseModel.note.ilike(pattern, escape="\\"),
+                    ExpenseModel.item_id.in_(matching_items),
+                )
+            )
         return statement
 
     def list(self, criteria: ExpenseFilter) -> list[Expense]:
@@ -140,6 +167,13 @@ class SqlAlchemyExpenseRepository(TrackingRepository[Expense]):
 
     def count(self, criteria: ExpenseFilter) -> int:
         statement = self._apply(criteria, select(func.count()).select_from(ExpenseModel))
+        return int(self._session.scalar(statement) or 0)
+
+    def sum_amount(self, criteria: ExpenseFilter) -> int:
+        """Total minor units of everything the filter matches, ignoring limit/offset."""
+        statement = self._apply(
+            criteria, select(func.coalesce(func.sum(ExpenseModel.amount_minor), 0))
+        )
         return int(self._session.scalar(statement) or 0)
 
     def count_for_category(self, owner_id: OwnerId, category_id: CategoryId) -> int:
@@ -207,6 +241,54 @@ class SqlAlchemyExpenseRepository(TrackingRepository[Expense]):
 
     def remove(self, expense: Expense) -> None:
         self._delete(expense)
+
+    # -- read side for the monthly summary ------------------------------
+    def totals(self, owner_id: OwnerId, since: date, until: date) -> tuple[int, int]:
+        """``(total_amount_minor, count)`` of the owner's expenses in ``[since, until]``."""
+        statement = select(
+            func.coalesce(func.sum(ExpenseModel.amount_minor), 0), func.count()
+        ).where(
+            ExpenseModel.owner_id == owner_id.value,
+            ExpenseModel.spent_on >= since,
+            ExpenseModel.spent_on <= until,
+        )
+        amount, count = self._session.execute(statement).one()
+        return int(amount or 0), int(count or 0)
+
+    def daily_totals(self, owner_id: OwnerId, since: date, until: date) -> list[tuple[date, int]]:
+        """``(spent_on, total_amount_minor)`` per day that has spending in ``[since, until]``."""
+        statement = (
+            select(ExpenseModel.spent_on, func.sum(ExpenseModel.amount_minor))
+            .where(
+                ExpenseModel.owner_id == owner_id.value,
+                ExpenseModel.spent_on >= since,
+                ExpenseModel.spent_on <= until,
+            )
+            .group_by(ExpenseModel.spent_on)
+        )
+        return [(day, int(amount or 0)) for day, amount in self._session.execute(statement).all()]
+
+    def category_totals(
+        self, owner_id: OwnerId, since: date, until: date
+    ) -> list[tuple[UUID, int, int]]:
+        """``(category_id, total_amount_minor, count)`` per category in ``[since, until]``."""
+        statement = (
+            select(
+                ExpenseModel.category_id,
+                func.sum(ExpenseModel.amount_minor),
+                func.count(),
+            )
+            .where(
+                ExpenseModel.owner_id == owner_id.value,
+                ExpenseModel.spent_on >= since,
+                ExpenseModel.spent_on <= until,
+            )
+            .group_by(ExpenseModel.category_id)
+        )
+        return [
+            (category_id, int(amount or 0), int(count or 0))
+            for category_id, amount, count in self._session.execute(statement).all()
+        ]
 
 
 class SqlAlchemyFixedExpenseRepository(TrackingRepository[FixedExpense]):
@@ -340,3 +422,44 @@ class SqlAlchemyItemRepository(TrackingRepository[Item]):
 
     def remove(self, item: Item) -> None:
         self._delete(item)
+
+
+class SqlAlchemyBudgetRepository(TrackingRepository[Budget]):
+    mapper = BudgetMapper
+
+    def __init__(self, session: Session) -> None:
+        super().__init__(session)
+
+    @classmethod
+    def model_type(cls) -> type[BudgetModel]:
+        return BudgetModel
+
+    def add(self, budget: Budget) -> None:
+        self._insert(budget)
+
+    def list_for_owner(self, owner_id: OwnerId) -> list[Budget]:
+        statement = select(BudgetModel).where(BudgetModel.owner_id == owner_id.value)
+        return self._rehydrate_all(self._session.scalars(statement).all())
+
+    def find(self, owner_id: OwnerId, category_id: CategoryId | None) -> Budget | None:
+        """The overall budget (``category_id=None``) or one category's, or None when unset."""
+        statement = select(BudgetModel).where(BudgetModel.owner_id == owner_id.value)
+        statement = statement.where(
+            BudgetModel.category_id.is_(None)
+            if category_id is None
+            else BudgetModel.category_id == category_id.value
+        )
+        model = self._session.scalars(statement).first()
+        return self._rehydrate(model) if model is not None else None
+
+    def get(self, owner_id: OwnerId, category_id: CategoryId | None) -> Budget:
+        budget = self.find(owner_id, category_id)
+        if budget is None:
+            raise BudgetNotFound(
+                "No budget is set",
+                category_id=str(category_id) if category_id else None,
+            )
+        return budget
+
+    def remove(self, budget: Budget) -> None:
+        self._delete(budget)

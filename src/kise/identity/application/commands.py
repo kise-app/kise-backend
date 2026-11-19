@@ -31,6 +31,13 @@ class AuthenticateOwnerCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ChangePasswordCommand:
+    owner_id: OwnerId
+    current_password: str
+    new_password: str
+
+
+@dataclass(frozen=True, slots=True)
 class UpdatePreferencesCommand:
     owner_id: OwnerId
     display_name: str | None = None

@@ -64,3 +64,7 @@ class UnitId(EntityId):
 
 class ItemId(EntityId):
     """Identifies an Item — a thing bought, tracked across expenses."""
+
+
+class BudgetId(EntityId):
+    """Identifies a Budget — a monthly spending limit, overall or for one category."""

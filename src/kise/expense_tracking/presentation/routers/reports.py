@@ -1,4 +1,8 @@
-"""The reporting router: the month-end item-usage report.
+"""The reporting router: the monthly summary and the month-end item-usage report.
+
+``GET /api/reports/summary?period_year=2018&period_month=11&period_calendar=ethiopian`` returns the
+dashboard's month in one call: the grand total (dynamic + committed), last month's total, fixed
+committed/settled/outstanding, one dynamic-spending figure per day, and the category split.
 
 ``GET /api/reports/item-usage?period_year=2018&period_month=11&period_calendar=ethiopian`` returns,
 for that month, how much of each item was bought in each unit — the "12 kg of sugar" view — with the
@@ -10,17 +14,39 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from kise.expense_tracking.application.commands import ItemUsageQuery, PeriodInput
+from kise.expense_tracking.application.commands import (
+    ItemUsageQuery,
+    MonthlySummaryQuery,
+    PeriodInput,
+)
 from kise.expense_tracking.presentation.routers.catalog_schemas import ItemUsageReportResponse
-from kise.platform.api.dependencies import CurrentOwner, ServicesDep
+from kise.expense_tracking.presentation.routers.fixed_expense_schemas import (
+    MonthlySummaryResponse,
+)
+from kise.platform.api.dependencies import CurrentOwner, OwnerServicesDep
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+@router.get("/summary", response_model=MonthlySummaryResponse)
+def monthly_summary(
+    owner: CurrentOwner,
+    services: OwnerServicesDep,
+    period_year: int = Query(ge=1),
+    period_month: int = Query(ge=1, le=13),
+    period_calendar: str = Query(default="ethiopian"),
+) -> MonthlySummaryResponse:
+    query = MonthlySummaryQuery(
+        owner_id=owner.owner_id,
+        period=PeriodInput(year=period_year, month=period_month, calendar=period_calendar),
+    )
+    return MonthlySummaryResponse.of(services.summary.for_period(query))
 
 
 @router.get("/item-usage", response_model=ItemUsageReportResponse)
 def item_usage(
     owner: CurrentOwner,
-    services: ServicesDep,
+    services: OwnerServicesDep,
     period_year: int = Query(ge=1),
     period_month: int = Query(ge=1, le=13),
     period_calendar: str = Query(default="ethiopian"),

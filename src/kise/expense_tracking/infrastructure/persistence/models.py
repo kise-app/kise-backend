@@ -178,6 +178,30 @@ class SettlementModel(Base):
         return f"SettlementModel(id={self.id}, period={self.period_year}-{self.period_month})"
 
 
+class BudgetModel(Base):
+    """A monthly spending limit: overall when ``category_id`` is null, else for one category."""
+
+    __tablename__ = "budgets"
+    __table_args__ = (
+        # Backstops the per-category rule. NULLs are distinct in SQL, so "one overall budget" is
+        # enforced by the service rather than here.
+        UniqueConstraint("owner_id", "category_id", name="owner_budget_category"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    owner_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("owners.id", ondelete="CASCADE"), index=True
+    )
+    category_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=True
+    )
+    amount_minor: Mapped[int] = mapped_column(BigInteger)
+    currency: Mapped[str] = mapped_column(String(3))
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"BudgetModel(id={self.id}, category_id={self.category_id})"
+
+
 class UnitOfMeasurementModel(Base):
     """A unit of measurement — kg, litre, piece. Global (shared across owners), seeded on first run.
 

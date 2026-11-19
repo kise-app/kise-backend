@@ -171,6 +171,8 @@ class ExpenseFilter:
     since: date | None = None
     until: date | None = None
     category_ids: tuple[CategoryId, ...] = ()
+    payment_methods: tuple[str, ...] = ()
+    search: str | None = None
     limit: int = 50
     offset: int = 0
 
@@ -182,6 +184,10 @@ class ListExpensesQuery:
     until: DateInput | None = None
     period: PeriodInput | None = None
     category_ids: tuple[CategoryId, ...] = ()
+    #: Narrow to these payment methods (cash, telebirr, ...).
+    payment_methods: tuple[str, ...] = ()
+    #: Case-insensitive text matched against the note and the item name.
+    search: str | None = None
     limit: int = 50
     offset: int = 0
 
@@ -221,5 +227,43 @@ class SettleOccurrenceCommand:
     period: PeriodInput
     settled_on: DateInput | None = None
     amount_minor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UnsettleOccurrenceCommand:
+    owner_id: OwnerId
+    fixed_expense_id: FixedExpenseId
+    period: PeriodInput
+
+
+@dataclass(frozen=True, slots=True)
+class OccurrencesQuery:
+    """Every commitment owed in one month, in either calendar."""
+
+    owner_id: OwnerId
+    period: PeriodInput
+
+
+# -- budgets ------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SetBudgetCommand:
+    """Set (create or change) the overall budget, or one category's when ``category_id`` is set."""
+
+    owner_id: OwnerId
+    amount_minor: int
+    category_id: CategoryId | None = None
+
+
+# -- reports ------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlySummaryQuery:
+    """The dashboard's month: totals, the daily rhythm and the category split."""
+
+    owner_id: OwnerId
+    period: PeriodInput
 
 

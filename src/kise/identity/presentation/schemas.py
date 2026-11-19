@@ -12,6 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from kise.identity.application.commands import (
     AuthenticateOwnerCommand,
+    ChangePasswordCommand,
     RegisterOwnerCommand,
     UpdatePreferencesCommand,
 )
@@ -43,6 +44,18 @@ class LoginRequest(BaseModel):
 
     def to_command(self) -> AuthenticateOwnerCommand:
         return AuthenticateOwnerCommand(email=str(self.email), password=self.password)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=72)
+
+    def to_command(self, owner_id: object) -> ChangePasswordCommand:
+        return ChangePasswordCommand(
+            owner_id=owner_id,  # type: ignore[arg-type]  # OwnerId, passed opaque by the router
+            current_password=self.current_password,
+            new_password=self.new_password,
+        )
 
 
 class UpdateProfileRequest(BaseModel):

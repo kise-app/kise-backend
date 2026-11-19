@@ -10,6 +10,8 @@ request. Three things are provided:
 * ``get_current_owner`` — resolves the ``Authorization: Bearer <jwt>`` header to an ``OwnerProfile``
   by asking the OwnerService. A missing or malformed token becomes ``InvalidToken``, which the error
   handler renders as 401.
+* ``get_owner_services`` — the same, built for the signed-in owner, so money is written in *their*
+  currency. Every expense-tracking route uses this one.
 * ``get_container`` — the singletons, for the rare dependency that needs them directly.
 """
 
@@ -67,3 +69,23 @@ def get_current_owner(
 
 
 CurrentOwner = Annotated[OwnerProfile, Depends(get_current_owner)]
+
+
+def get_owner_services(request: Request, owner: CurrentOwner) -> Iterator[RequestServices]:
+    """Per-request services for the signed-in owner: as ``get_services``, in the owner's currency.
+
+    FastAPI resolves ``CurrentOwner`` once per request, so a route that also declares it does not
+    decode the token twice.
+    """
+    container: Container = request.app.state.container
+    uow = container.open_unit_of_work()
+    try:
+        yield container.build_services(uow, currency=owner.currency)
+    except Exception:
+        uow.rollback()
+        raise
+    finally:
+        uow.session.close()
+
+
+OwnerServicesDep = Annotated[RequestServices, Depends(get_owner_services)]

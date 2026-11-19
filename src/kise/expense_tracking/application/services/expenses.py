@@ -30,7 +30,7 @@ from kise.expense_tracking.infrastructure.persistence.repositories import (
 from kise.shared_kernel.application.ports import UnitOfWork
 from kise.shared_kernel.domain.errors import ValidationError
 from kise.shared_kernel.domain.identifiers import CategoryId, ExpenseId, ItemId, OwnerId, UnitId
-from kise.shared_kernel.domain.money import Money, sum_money
+from kise.shared_kernel.domain.money import Money
 
 
 class ExpenseService:
@@ -176,6 +176,8 @@ class ExpenseService:
             since=since,
             until=until,
             category_ids=query.category_ids,
+            payment_methods=query.payment_methods,
+            search=query.search,
             limit=query.limit,
             offset=query.offset,
         )
@@ -213,7 +215,7 @@ class ExpenseService:
             total=total,
             limit=criteria.limit,
             offset=criteria.offset,
-            # The sum of this page, not of the whole filter: the summary endpoint answers
-            # "how much this month".
-            total_amount=sum_money([item.amount for item in items], self._currency),
+            # The sum of everything the filter matches, not just this page, so a paged list can
+            # show "23 expenses · 1,240 ETB" from its first page.
+            total_amount=Money(self._expenses.sum_amount(criteria), self._currency),
         )

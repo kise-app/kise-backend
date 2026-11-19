@@ -9,8 +9,9 @@ One contract per **aggregate root**, never per table: ``Settlement`` has none, b
 ever persisted through its ``FixedExpense``.
 """
 
+from kise.expense_tracking.domain.mappers.budget_mapping import BudgetMapping
 from kise.expense_tracking.domain.mappers.category_mapping import CategoryMapping
 from kise.expense_tracking.domain.mappers.expense_mapping import ExpenseMapping
 from kise.expense_tracking.domain.mappers.fixed_expense_mapping import FixedExpenseMapping
 
-__all__ = ["CategoryMapping", "ExpenseMapping", "FixedExpenseMapping"]
+__all__ = ["BudgetMapping", "CategoryMapping", "ExpenseMapping", "FixedExpenseMapping"]

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from kise.expense_tracking.domain.models import (
+    Budget,
     Category,
     Expense,
     FixedExpense,
@@ -29,6 +30,7 @@ from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.calendar.period import Period
 from kise.shared_kernel.domain.calendar.spend_date import SpendDate
 from kise.shared_kernel.domain.identifiers import (
+    BudgetId,
     CategoryId,
     ExpenseId,
     FixedExpenseId,
@@ -248,3 +250,77 @@ class ItemUsageReport:
     period: Period
     lines: tuple[ItemUsageLine, ...]
     currency: str
+
+
+@dataclass(frozen=True, slots=True)
+class OccurrenceMonth:
+    """Every commitment owed in one Period, with the month's committed/settled/outstanding totals.
+
+    ``period`` is the Period the caller asked for, in the caller's calendar; each occurrence carries
+    its own anchor Period, which is what a Settlement is filed under.
+    """
+
+    period: Period
+    occurrences: tuple[OccurrenceView, ...]
+    committed: Money
+    settled: Money
+    outstanding: Money
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetView:
+    budget_id: BudgetId
+    category_id: CategoryId | None
+    amount: Money
+
+    @classmethod
+    def of(cls, budget: Budget) -> BudgetView:
+        return cls(budget_id=budget.id, category_id=budget.category_id, amount=budget.amount)
+
+
+@dataclass(frozen=True, slots=True)
+class CategorySpend:
+    """One category's share of a month: dynamic spending plus committed fixed amounts.
+
+    ``budget`` is the category's monthly limit when one is set.
+    """
+
+    category_id: CategoryId
+    name: str
+    name_am: str | None
+    color: str
+    icon: str | None
+    dynamic: Money
+    committed: Money
+    expense_count: int
+    budget: Money | None = None
+
+    @property
+    def total(self) -> Money:
+        return self.dynamic + self.committed
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlySummary:
+    """The dashboard's month, computed server-side so every client agrees on the numbers.
+
+    ``daily`` has one entry per day of the Period (in its own calendar), dynamic spending only —
+    a rent payment would flatten every other bar. ``previous_total`` is the previous Period's grand
+    total (dynamic + committed), for the "x% more than last month" line.
+    """
+
+    period: Period
+    dynamic_total: Money
+    expense_count: int
+    committed: Money
+    settled: Money
+    outstanding: Money
+    daily: tuple[Money, ...]
+    categories: tuple[CategorySpend, ...]
+    previous_total: Money
+    #: The overall monthly budget, when one is set.
+    budget: Money | None = None
+
+    @property
+    def grand_total(self) -> Money:
+        return self.dynamic_total + self.committed

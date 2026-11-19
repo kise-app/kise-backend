@@ -13,19 +13,19 @@ from kise.expense_tracking.presentation.routers.catalog_schemas import (
     CreateUnitRequest,
     UnitResponse,
 )
-from kise.platform.api.dependencies import CurrentOwner, ServicesDep
+from kise.platform.api.dependencies import CurrentOwner, OwnerServicesDep
 
 router = APIRouter(prefix="/api/units", tags=["units"])
 
 
 @router.get("", response_model=list[UnitResponse])
-def list_units(_: CurrentOwner, services: ServicesDep) -> list[UnitResponse]:
+def list_units(_: CurrentOwner, services: OwnerServicesDep) -> list[UnitResponse]:
     return [UnitResponse.of(view) for view in services.units.list()]
 
 
 @router.post("", response_model=UnitResponse, status_code=status.HTTP_201_CREATED)
 def create_unit(
-    request: CreateUnitRequest, _: CurrentOwner, services: ServicesDep
+    request: CreateUnitRequest, _: CurrentOwner, services: OwnerServicesDep
 ) -> UnitResponse:
     """Add a custom unit. The code must be unique across the whole install."""
     return UnitResponse.of(services.units.create(request.to_command()))

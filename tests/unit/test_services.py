@@ -151,6 +151,9 @@ class FakeExpenses:
     def count(self, criteria) -> int:
         return len(self._matching(criteria))
 
+    def sum_amount(self, criteria) -> int:
+        return sum(e.amount.minor_units for e in self._matching(criteria))
+
     def count_for_category(self, owner_id, category_id) -> int:
         return len(
             [

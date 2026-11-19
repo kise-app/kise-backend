@@ -18,6 +18,10 @@ class FixedExpenseNotFound(NotFound):
     code = "fixed_expense_not_found"
 
 
+class BudgetNotFound(NotFound):
+    code = "budget_not_found"
+
+
 class ItemNotFound(NotFound):
     code = "item_not_found"
 

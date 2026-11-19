@@ -14,6 +14,7 @@ database tables. These classes know nothing about SQLAlchemy; mappers translate 
 from kise.expense_tracking.domain.entities import (
     DEFAULT_CATEGORIES,
     DEFAULT_UNITS,
+    Budget,
     Category,
     Expense,
     FixedExpense,
@@ -36,6 +37,7 @@ __all__ = [
     "DEFAULT_CATEGORIES",
     "DEFAULT_UNITS",
     "MAX_DUE_DAY",
+    "Budget",
     "Category",
     "Color",
     "DueDay",
