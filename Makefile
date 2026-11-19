@@ -34,7 +34,7 @@ install: ## Install the package with dev extras
 
 env: ## Create .env from the example (does not overwrite)
 	@test -f .env || cp .env.example .env
-	@echo "Remember to set KISE_SECRET_KEY in .env"
+	@echo "Remember to set SECRET_KEY in .env"
 
 ## --- Run & database --------------------------------------------------------
 
@@ -98,7 +98,7 @@ HEROKU_FLAGS := $(if $(HEROKU_APP),--app $(HEROKU_APP),)
 heroku-setup: ## Pin the Python buildpack and attach Postgres (run once)
 	heroku buildpacks:set heroku/python $(HEROKU_FLAGS)
 	heroku addons:create heroku-postgresql:essential-0 $(HEROKU_FLAGS)
-	heroku config:set KISE_SECRET_KEY=$$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') $(HEROKU_FLAGS)
+	heroku config:set SECRET_KEY=$$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') $(HEROKU_FLAGS)
 
 deploy: ## Push the current branch to Heroku (runs migrations in the release phase)
 	git push heroku $$(git rev-parse --abbrev-ref HEAD):main

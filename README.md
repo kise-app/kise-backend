@@ -14,7 +14,7 @@ Requires Python 3.11+ ([uv](https://docs.astral.sh/uv/) recommended). Developed 
 uv venv --python 3.13
 uv pip install -e ".[dev]"          # or: uv pip install -r requirements-dev.txt
 
-cp .env.example .env                # then change KISE_SECRET_KEY
+cp .env.example .env                # then change SECRET_KEY
 
 .venv/bin/alembic upgrade head      # create the schema
 .venv/bin/uvicorn kise.platform.api.app:app --reload
@@ -24,10 +24,28 @@ cp .env.example .env                # then change KISE_SECRET_KEY
 - `http://127.0.0.1:8000/docs`    interactive API (Swagger)
 - `http://127.0.0.1:8000/health`  health check
 
-Configuration is read from the environment with a `KISE_` prefix: `KISE_DATABASE_URL`,
-`KISE_SECRET_KEY`, `KISE_ACCESS_TOKEN_EXPIRE_MINUTES`, `KISE_DEFAULT_CURRENCY`, `KISE_CORS_ORIGINS`.
-A platform-provided `DATABASE_URL` (e.g. from Heroku) is adopted automatically when
-`KISE_DATABASE_URL` is unset, and a bare `postgres://` scheme is normalised to `postgresql+psycopg://`.
+Configuration is read from the environment by plain names (no prefix): `DATABASE_URL`,
+`SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `DEFAULT_CURRENCY`, `CORS_ORIGINS`.
+A platform-provided `DATABASE_URL` (e.g. from Heroku) is therefore used as it is, and a bare
+`postgres://` scheme is normalised to `postgresql+psycopg://`.
+
+### Assistant (voice notes, receipts, questions)
+
+`/api/assistant/*` turns typed text, a voice note or a receipt photo into *draft* expenses, and
+answers questions about spending from server-computed figures. It never records anything itself:
+the app shows the drafts and records the confirmed ones through `/api/expenses`.
+
+It is off until a key is set — then `GET /api/assistant/status` reports `enabled: true` and the app
+shows the assistant button:
+
+- `GEMINI_API_KEY` — a Google Gemini API key (the only provider today; `ASSISTANT_PROVIDER=gemini`).
+- `GEMINI_MODEL` — default `gemini-3.8-flash`.
+- `ASSISTANT_HOURLY_LIMIT` — requests per user per rolling hour, per web process (default 30).
+
+Audio and images are sent to Google for reading and are not stored by Kise. Every figure the model
+returns is checked server-side (`assistant/domain/drafts.py`): categories must be the user's own,
+dates are converted with Kise's calendar code rather than by the model, and unusable lines are
+dropped.
 
 ## Docker
 
@@ -58,9 +76,9 @@ heroku addons:create heroku-postgresql:essential-0 --app <app>
 # A root package.json makes Heroku detect Node first — pin the Python buildpack explicitly.
 heroku buildpacks:set heroku/python --app <app>
 
-heroku config:set KISE_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
-                  KISE_DEFAULT_CURRENCY=ETB \
-                  KISE_CORS_ORIGINS='["https://your-frontend"]' --app <app>
+heroku config:set SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+                  DEFAULT_CURRENCY=ETB \
+                  CORS_ORIGINS='["https://your-frontend"]' --app <app>
 ```
 
 Then, in GitHub under *Settings → Secrets and variables → Actions*:
@@ -72,7 +90,7 @@ Then, in GitHub under *Settings → Secrets and variables → Actions*:
 
 `DATABASE_URL` needs no configuration: the Postgres add-on exports it and `platform/config.py`
 adopts it, rewriting `postgres://` to `postgresql+psycopg://`. Nothing else is required — but do
-narrow `KISE_CORS_ORIGINS` from the `["*"]` default, and note that `KISE_SECRET_KEY` must be set or
+narrow `CORS_ORIGINS` from the `["*"]` default, and note that `SECRET_KEY` must be set or
 the app boots with the insecure placeholder.
 
 `make deploy` pushes manually (bypassing CI) if you need an escape hatch, and `heroku.yml` is

@@ -2,7 +2,7 @@
 
 Two things worth knowing:
 
-* The database URL comes from ``KISE_DATABASE_URL`` (via ``Settings``), not from ``alembic.ini``, so
+* The database URL comes from ``DATABASE_URL`` (via ``Settings``), not from ``alembic.ini``, so
   migrations and the running app can never disagree about which database they mean.
 * Every context's models module is imported before ``target_metadata`` is read. Tables live with
   their bounded context, so autogenerate would silently miss a whole context otherwise — and a

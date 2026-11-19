@@ -29,7 +29,7 @@ EXPECTED_TABLES = {"owners", "categories", "expenses", "fixed_expenses", "settle
 def migrated_database(tmp_path, monkeypatch):
     """An empty SQLite file with every migration applied."""
     url = f"sqlite:///{tmp_path / 'migrated.db'}"
-    monkeypatch.setenv("KISE_DATABASE_URL", url)
+    monkeypatch.setenv("DATABASE_URL", url)
     get_settings.cache_clear()  # env.py reads the settings, which are cached
 
     config = Config(str(BACKEND_ROOT / "alembic.ini"))

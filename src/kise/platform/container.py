@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from kise.assistant.application.ports import LanguageModel, RateLimiter
+from kise.assistant.infrastructure.adapters import DisabledLanguageModel, InMemoryRateLimiter
+from kise.assistant.infrastructure.gemini import GeminiLanguageModel
 from kise.expense_tracking.application.services import (
     BudgetService,
     CategoryService,
@@ -66,22 +69,60 @@ class RequestServices:
 class Container:
     """Holds the singletons and builds per-request services."""
 
-    def __init__(self, settings: Settings, *, engine: Engine | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        engine: Engine | None = None,
+        language_model: LanguageModel | None = None,
+        clock: Clock | None = None,
+    ) -> None:
         self._settings = settings
         self._engine = engine or build_engine(settings.database_url, echo=settings.debug)
         self._session_factory: sessionmaker[Session] = build_session_factory(self._engine)
 
-        self._clock: Clock = SystemClock()
+        self._clock: Clock = clock or SystemClock()
         self._hasher = BcryptPasswordHasher()
         self._tokens = JwtTokenService(
             settings.secret_key, expire_minutes=settings.access_token_expire_minutes
         )
 
+        self._language_model, self._assistant_enabled = self._build_language_model(
+            settings, language_model
+        )
+        self._rate_limiter: RateLimiter = InMemoryRateLimiter(settings.assistant_hourly_limit)
+
         self._event_bus = InProcessEventBus()
         self._uow_factory = build_unit_of_work_factory(self._session_factory, self._event_bus)
         self._register_subscribers()
 
+    @staticmethod
+    def _build_language_model(
+        settings: Settings, override: LanguageModel | None
+    ) -> tuple[LanguageModel, bool]:
+        if override is not None:
+            return override, not isinstance(override, DisabledLanguageModel)
+        if settings.assistant_enabled:
+            return GeminiLanguageModel(settings.gemini_api_key, model=settings.gemini_model), True
+        return DisabledLanguageModel(), False
+
     # -- singletons -----------------------------------------------------
+    @property
+    def language_model(self) -> LanguageModel:
+        return self._language_model
+
+    @property
+    def rate_limiter(self) -> RateLimiter:
+        return self._rate_limiter
+
+    @property
+    def assistant_enabled(self) -> bool:
+        return self._assistant_enabled
+
+    @property
+    def clock(self) -> Clock:
+        return self._clock
+
     @property
     def settings(self) -> Settings:
         return self._settings
@@ -218,7 +259,7 @@ def build_container(settings: Settings) -> Container:
     container = Container(settings)
     if settings.is_secret_key_insecure:
         logger.warning(
-            "KISE_SECRET_KEY is the insecure default or too short. Set a long random value "
+            "SECRET_KEY is the insecure default or too short. Set a long random value "
             "before deploying; tokens signed with it are trivially forgeable."
         )
     return container

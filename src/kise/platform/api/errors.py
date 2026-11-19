@@ -23,6 +23,9 @@ from kise.shared_kernel.domain.errors import (
     InvariantViolation,
     NotFound,
     PermissionDenied,
+    ServiceUnavailable,
+    TooManyRequests,
+    UpstreamFailed,
     ValidationError,
 )
 
@@ -38,6 +41,9 @@ _STATUS_BY_TYPE: tuple[tuple[type[DomainError], int], ...] = (
     # An invariant violation is the caller asking for an impossible state (e.g. archiving twice):
     # a 409, because it clashes with the record's current state.
     (InvariantViolation, status.HTTP_409_CONFLICT),
+    (TooManyRequests, status.HTTP_429_TOO_MANY_REQUESTS),
+    (ServiceUnavailable, status.HTTP_503_SERVICE_UNAVAILABLE),
+    (UpstreamFailed, status.HTTP_502_BAD_GATEWAY),
 )
 
 _DEFAULT_STATUS = status.HTTP_400_BAD_REQUEST

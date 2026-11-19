@@ -48,3 +48,21 @@ class PermissionDenied(DomainError):
     """The caller is not the owner of the record."""
 
     code = "permission_denied"
+
+
+class TooManyRequests(DomainError):
+    """The caller has used up an allowance (e.g. assistant requests per hour)."""
+
+    code = "too_many_requests"
+
+
+class ServiceUnavailable(DomainError):
+    """A capability is switched off or not configured on this server."""
+
+    code = "service_unavailable"
+
+
+class UpstreamFailed(DomainError):
+    """A service Kise depends on (e.g. the language model) failed or answered nonsense."""
+
+    code = "upstream_failed"

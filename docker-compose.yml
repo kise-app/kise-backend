@@ -33,15 +33,18 @@ services:
       db:
         condition: service_healthy
     environment:
-      # DATABASE_URL from .env targets the 'db' service; feed it to the app as KISE_DATABASE_URL.
-      KISE_DATABASE_URL: ${DATABASE_URL}
-      KISE_SECRET_KEY: ${KISE_SECRET_KEY}
-      KISE_DEFAULT_CURRENCY: ${KISE_DEFAULT_CURRENCY}
-      KISE_CORS_ORIGINS: ${KISE_CORS_ORIGINS}
-      KISE_ACCESS_TOKEN_EXPIRE_MINUTES: ${KISE_ACCESS_TOKEN_EXPIRE_MINUTES}
-      KISE_APP_STORE_URL: ${KISE_APP_STORE_URL:-}
-      KISE_PLAY_STORE_URL: ${KISE_PLAY_STORE_URL:-}
-      KISE_APP_DOWNLOAD_URL: ${KISE_APP_DOWNLOAD_URL:-}
+      # DATABASE_URL from .env targets the 'db' service.
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      APP_STORE_URL: ${APP_STORE_URL:-}
+      PLAY_STORE_URL: ${PLAY_STORE_URL:-}
+      APP_DOWNLOAD_URL: ${APP_DOWNLOAD_URL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      ASSISTANT_HOURLY_LIMIT: ${ASSISTANT_HOURLY_LIMIT:-30}
     ports:
       - "${BACKEND_PORT}:8000"
     # Migrate, then serve. Migrations own the schema in a real environment (not create_all).

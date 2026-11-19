@@ -12,6 +12,8 @@ request. Three things are provided:
   handler renders as 401.
 * ``get_owner_services`` — the same, built for the signed-in owner, so money is written in *their*
   currency. Every expense-tracking route uses this one.
+* ``get_assistant`` — the assistant use cases for the signed-in owner, with their language,
+  calendar and currency, over that owner's spending.
 * ``get_container`` — the singletons, for the rare dependency that needs them directly.
 """
 
@@ -23,8 +25,10 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from kise.assistant.application.service import AssistantRequest, AssistantService
 from kise.identity.application.views import OwnerProfile
 from kise.identity.domain.errors import InvalidToken
+from kise.platform.assistant_bridge import ExpenseTrackingSpending
 from kise.platform.container import Container, RequestServices
 
 # auto_error=False: a missing header must become our ``InvalidToken`` (with the domain error shape),
@@ -89,3 +93,33 @@ def get_owner_services(request: Request, owner: CurrentOwner) -> Iterator[Reques
 
 
 OwnerServicesDep = Annotated[RequestServices, Depends(get_owner_services)]
+
+
+def get_assistant(
+    request: Request, owner: CurrentOwner, services: OwnerServicesDep
+) -> tuple[AssistantService, AssistantRequest]:
+    """The assistant for the signed-in owner, reading their spending through ``services``."""
+    container: Container = request.app.state.container
+    service = AssistantService(
+        model=container.language_model,
+        spending=ExpenseTrackingSpending(services),
+        limiter=container.rate_limiter,
+        clock=container.clock,
+    )
+    return service, AssistantRequest(
+        owner_id=owner.owner_id,
+        language=owner.language.value,
+        calendar=owner.calendar,
+        currency=owner.currency,
+    )
+
+
+AssistantDep = Annotated[tuple[AssistantService, AssistantRequest], Depends(get_assistant)]
+
+
+def get_assistant_status(request: Request, _: CurrentOwner) -> tuple[bool, int]:
+    container: Container = request.app.state.container
+    return container.assistant_enabled, container.settings.assistant_hourly_limit
+
+
+AssistantStatusDep = Annotated[tuple[bool, int], Depends(get_assistant_status)]

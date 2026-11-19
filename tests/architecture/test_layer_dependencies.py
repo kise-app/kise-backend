@@ -18,7 +18,7 @@ import pytest
 SRC = Path(__file__).resolve().parents[2] / "src"
 KISE = SRC / "kise"
 
-CONTEXTS = ("identity", "expense_tracking", "reporting")
+CONTEXTS = ("identity", "expense_tracking", "reporting", "assistant")
 FORBIDDEN_IN_DOMAIN_PREFIXES = (
     "fastapi",
     "sqlalchemy",

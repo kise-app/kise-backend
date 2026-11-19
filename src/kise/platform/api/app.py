@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from kise.assistant.presentation.router import router as assistant_router
 from kise.expense_tracking.presentation.routers.budgets import router as budgets_router
 from kise.expense_tracking.presentation.routers.categories import router as categories_router
 from kise.expense_tracking.presentation.routers.expenses import router as expenses_router
@@ -84,6 +85,7 @@ def create_app(
     app.include_router(items_router)
     app.include_router(reports_router)
     app.include_router(budgets_router)
+    app.include_router(assistant_router)
 
     # The landing page's assets: the favicon and, under static/styles/, the stylesheet compiled by
     # `make web-css`.
