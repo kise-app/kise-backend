@@ -5,9 +5,16 @@
 # a normal build; the Procfile's `release` phase runs `alembic upgrade head` before the new web
 # dynos take traffic.
 #
-# Required repository settings (Settings -> Secrets and variables -> Actions):
+# Optional. Kise's Heroku app already deploys itself from GitHub (Heroku's GitHub integration with
+# automatic deploys), so this job is skipped unless the variable below is set. Set it only if you
+# turn Heroku's automatic deploys off and want Actions to deploy instead; with both on, every push
+# would deploy twice.
+#
+# Repository settings (Settings -> Secrets and variables -> Actions):
+#   variable HEROKU_APP_NAME   the Heroku app name, e.g. kise-app
 #   secret   HEROKU_API_KEY    from `heroku authorizations:create` (do NOT use a personal login)
-#   variable HEROKU_APP_NAME   the target Heroku app, e.g. kise-api
+#   variable HEROKU_APP_URL    optional: the app's URL if its domain has a random suffix, e.g.
+#                              https://kise-app-1d266401bf6a.herokuapp.com
 #
 # One-time setup on the Heroku side, because a root package.json makes Heroku detect Node first:
 #   heroku buildpacks:set heroku/python --app <app>
@@ -50,11 +57,13 @@ jobs:
   deploy:
     name: Deploy
     needs: test
+    # Skipped (not failed) when Actions is not set up to deploy; see the note at the top.
+    if: ${{ vars.HEROKU_APP_NAME != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
       name: production
-      url: https://${{ vars.HEROKU_APP_NAME }}.herokuapp.com
+      url: ${{ vars.HEROKU_APP_URL || format('https://{0}.herokuapp.com', vars.HEROKU_APP_NAME) }}
 
     steps:
       # Heroku builds from the pushed history, so the full clone is required.
@@ -78,10 +87,10 @@ jobs:
 
       - name: Verify the deployed app answers /health
         env:
-          HEROKU_APP_NAME: ${{ vars.HEROKU_APP_NAME }}
+          APP_URL: ${{ vars.HEROKU_APP_URL || format('https://{0}.herokuapp.com', vars.HEROKU_APP_NAME) }}
         run: |
           set -euo pipefail
-          url="https://$HEROKU_APP_NAME.herokuapp.com/health"
+          url="${APP_URL%/}/health"
           for attempt in 1 2 3 4 5 6; do
             code=$(curl -fsS -o /dev/null -w '%{http_code}' "$url" || true)
             if [ "$code" = "200" ]; then

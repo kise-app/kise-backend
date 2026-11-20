@@ -57,7 +57,7 @@ from kise.platform.admin.sessions import (
     new_csrf_token,
 )
 from kise.platform.api.dependencies import ServicesDep
-from kise.platform.api.landing import STYLE_PATH, TEMPLATES_DIR
+from kise.platform.api.landing import STYLE_PATH, STYLE_VERSION, TEMPLATES_DIR
 from kise.platform.container import Container
 from kise.shared_kernel.domain.errors import DomainError, NotFound, TooManyRequests
 from kise.shared_kernel.domain.identifiers import AdministratorId, OwnerId
@@ -113,6 +113,7 @@ def _render(
     token = _csrf_token(request)
     html = _env.get_template(f"admin/{template}").render(
         style_path=STYLE_PATH,
+        style_version=STYLE_VERSION,
         portal=PORTAL,
         csrf_token=token,
         request_path=request.url.path,

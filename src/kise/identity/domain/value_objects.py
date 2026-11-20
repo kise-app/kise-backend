@@ -64,9 +64,10 @@ class PasswordHash:
     __repr__ = __str__
 
 
-#: Admin portal passwords: longer than app passwords, because the portal can change anyone's plan.
-#: The upper bound is bcrypt's: it ignores everything past 72 bytes.
-MIN_ADMIN_PASSWORD_LENGTH = 12
+#: Admin portal passwords: the same minimum as app passwords. Guessing is held back by the sign-in
+#: throttle (10 tries per 15 minutes per address). The upper bound is bcrypt's: it ignores
+#: everything past 72 bytes.
+MIN_ADMIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_BYTES = 72
 
 

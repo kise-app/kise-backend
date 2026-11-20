@@ -13,6 +13,7 @@ actual status.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -24,6 +25,22 @@ STATIC_DIR = BACKEND_ROOT / "static"
 
 STATIC_PATH = "/static"
 STYLE_PATH = f"{STATIC_PATH}/styles"
+
+
+def _style_version() -> str:
+    """A short hash of the compiled stylesheet, added to its URL as ``?v=``.
+
+    Static files are served without a cache lifetime, so browsers guess one and can keep an old
+    stylesheet after a deploy (new pages then render unstyled). A URL that changes with the file
+    makes every browser fetch the new one.
+    """
+    try:
+        return hashlib.sha256((STATIC_DIR / "styles" / "app.css").read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "dev"
+
+
+STYLE_VERSION = _style_version()
 
 _env = Environment(
     loader=FileSystemLoader(TEMPLATES_DIR),
@@ -48,5 +65,6 @@ def render_landing_page(
         play_store_url=play_store_url,
         docs_path=api_docs_path,
         style_path=STYLE_PATH,
+        style_version=STYLE_VERSION,
         static_path=STATIC_PATH,
     )

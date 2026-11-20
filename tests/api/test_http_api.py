@@ -16,6 +16,8 @@ What they prove:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -133,14 +135,22 @@ def test_landing_page_escapes_a_hostile_download_url():
 
 def test_landing_page_links_a_stylesheet_and_favicon_the_server_can_serve(client: TestClient):
     body = client.get("/").text
-    assert 'href="/static/styles/app.css"' in body
+    # The stylesheet URL carries a hash of the file, so a deploy never leaves a stale one cached.
+    link = re.search(r'href="(/static/styles/app\.css\?v=[0-9a-f]{12})"', body)
+    assert link, "stylesheet link with a version"
     assert 'href="/static/favicon.svg"' in body
     favicon = client.get("/static/favicon.svg")
     assert favicon.status_code == 200
     assert "svg" in favicon.headers["content-type"]
-    stylesheet = client.get("/static/styles/app.css")
+    stylesheet = client.get(link.group(1))
     assert stylesheet.status_code == 200
     assert "text/css" in stylesheet.headers["content-type"]
+
+
+def test_the_admin_portal_links_the_same_versioned_stylesheet(client: TestClient):
+    landing = re.search(r'app\.css\?v=([0-9a-f]{12})', client.get("/").text)
+    portal = re.search(r'app\.css\?v=([0-9a-f]{12})', client.get("/kise-office/login").text)
+    assert landing and portal and landing.group(1) == portal.group(1)
 
 
 # -- auth ---------------------------------------------------------------

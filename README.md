@@ -46,7 +46,7 @@ telebirr), the price, and a Telegram username, phone and email. The app's upgrad
 and an admin moves them to Pro under **Accounts**.
 
 Admins are their own accounts, not app accounts. Create the first one from the command line; it
-asks for the email and password (at least 12 characters):
+asks for the email and password (at least 8 characters):
 
 ```sh
 make create-admin                 # locally: python -m kise.platform.admin create

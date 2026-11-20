@@ -53,11 +53,11 @@ def test_nobody_removes_themselves():
     admin.ensure_removable_by(AdministratorId.new())
 
 
-@pytest.mark.parametrize("password", ["", "eleven char", "x" * 73, "é" * 37])
+@pytest.mark.parametrize("password", ["", "seven c", "x" * 73, "é" * 37])
 def test_admin_passwords_must_be_long_but_fit_bcrypt(password):
     with pytest.raises(ValidationError):
         check_new_admin_password(password)
 
 
 def test_a_good_admin_password_is_returned_unchanged():
-    assert check_new_admin_password("twelve chars") == "twelve chars"
+    assert check_new_admin_password("8 chars!") == "8 chars!"

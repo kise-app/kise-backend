@@ -371,7 +371,7 @@ def test_the_command_line_refuses_bad_input_and_changes_nothing(empty_container:
     short = run_cli(empty_container, "create", email="a@kise.example", passwords=["short"] * 2)
     bad_email = run_cli(empty_container, "create", email="nope", passwords=[ADMIN_PASSWORD] * 2)
     assert mismatch == (1, "The two passwords do not match. Nothing was changed.")
-    assert short[0] == 1 and "at least 12 characters" in short[1]
+    assert short[0] == 1 and "at least 8 characters" in short[1]
     assert bad_email[0] == 1 and "not a valid email" in bad_email[1]
 
     run_cli(empty_container, "create", email="a@kise.example", passwords=[ADMIN_PASSWORD] * 2)
@@ -422,7 +422,7 @@ def test_an_admin_adds_another_who_can_then_sign_in(client: TestClient, containe
 @pytest.mark.parametrize(
     ("form", "message"),
     [
-        ({"email": "x@kise.example", "password": "short", "confirm": "short"}, "at least 12"),
+        ({"email": "x@kise.example", "password": "short", "confirm": "short"}, "at least 8"),
         (
             {"email": "x@kise.example", "password": "long enough pass", "confirm": "different"},
             "do not match",
