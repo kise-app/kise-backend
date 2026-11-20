@@ -17,7 +17,8 @@ SRC     := src tests migrations
 .PHONY: help venv install env run migrate revision downgrade \
         test lint format check css css-watch \
         up up-d down logs build clean \
-        heroku-setup deploy heroku-logs heroku-migrate heroku-open
+        create-admin heroku-setup deploy heroku-logs heroku-migrate heroku-open \
+        heroku-create-admin
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,6 +50,9 @@ revision: ## Autogenerate a migration: make revision m="message"
 
 downgrade: ## Roll back one migration
 	$(ALEMBIC) downgrade -1
+
+create-admin: ## Create an admin portal account (asks for email and password)
+	$(PYTHON) -m kise.platform.admin create
 
 ## --- Quality ---------------------------------------------------------------
 
@@ -105,6 +109,9 @@ deploy: ## Push the current branch to Heroku (runs migrations in the release pha
 
 heroku-logs: ## Tail Heroku logs
 	heroku logs --tail $(HEROKU_FLAGS)
+
+heroku-create-admin: ## Create an admin portal account on Heroku (asks for email and password)
+	heroku run "PYTHONPATH=src python -m kise.platform.admin create" $(HEROKU_FLAGS)
 
 heroku-migrate: ## Run migrations on Heroku manually
 	heroku run alembic upgrade head $(HEROKU_FLAGS)

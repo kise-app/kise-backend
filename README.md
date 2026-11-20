@@ -29,6 +29,39 @@ Configuration is read from the environment by plain names (no prefix): `DATABASE
 A platform-provided `DATABASE_URL` (e.g. from Heroku) is therefore used as it is, and a bare
 `postgres://` scheme is normalised to `postgresql+psycopg://`.
 
+### Plans and the admin portal
+
+Every account is on a plan: **Trial** (everything, for a limited time), **Basic** (everything except
+the assistant) or **Pro** (everything; optionally until a date). New accounts start on a trial whose
+length an admin sets; a trial or dated Pro plan past its end simply counts as Basic. The assistant
+routes answer `403 upgrade_required` on Basic, before any model call.
+
+The admin portal at **`/kise-office`** (server-rendered, Tailwind) shows accounts by plan, lets an admin
+search accounts, change a plan (Basic / a trial of N days / Pro for N days or open-ended) and set
+the trial length for new accounts.
+
+Payment is manual for now. Under **Payments** an admin enters the accounts to pay into (bank or
+telebirr), the price, and a Telegram username, phone and email. The app's upgrade sheet shows them
+(`GET /api/plans/payment`): the person pays, sends the screenshot on Telegram quoting their email,
+and an admin moves them to Pro under **Accounts**.
+
+Admins are their own accounts, not app accounts. Create the first one from the command line; it
+asks for the email and password (at least 12 characters):
+
+```sh
+make create-admin                 # locally: python -m kise.platform.admin create
+make heroku-create-admin          # on Heroku
+```
+
+After that, admins add and remove each other under **Admins** in the portal, and change their own
+password by clicking their email. `python -m kise.platform.admin reset-password` resets a forgotten
+one. Removing an admin or changing a password signs the old sessions out at once.
+`ADMIN_SESSION_HOURS` sets how long a portal session lasts (default 8).
+
+Sessions are HttpOnly, SameSite=Strict cookies separate from app tokens; forms are CSRF-checked;
+sign-in is throttled to 10 attempts per 15 minutes per address. After changing templates, rebuild
+the stylesheet with `make css` (it is committed, so deployments need no Node).
+
 ### Assistant (voice notes, receipts, questions)
 
 `/api/assistant/*` turns typed text, a voice note or a receipt photo into *draft* expenses, and

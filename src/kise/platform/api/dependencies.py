@@ -111,15 +111,21 @@ def get_assistant(
         language=owner.language.value,
         calendar=owner.calendar,
         currency=owner.currency,
+        allowed=owner.ai_enabled,
     )
 
 
 AssistantDep = Annotated[tuple[AssistantService, AssistantRequest], Depends(get_assistant)]
 
 
-def get_assistant_status(request: Request, _: CurrentOwner) -> tuple[bool, int]:
+def get_assistant_status(request: Request, owner: CurrentOwner) -> tuple[bool, int, bool]:
+    """(switched on for this server, hourly allowance, this owner's plan includes it)."""
     container: Container = request.app.state.container
-    return container.assistant_enabled, container.settings.assistant_hourly_limit
+    return (
+        container.assistant_enabled,
+        container.settings.assistant_hourly_limit,
+        owner.ai_enabled,
+    )
 
 
-AssistantStatusDep = Annotated[tuple[bool, int], Depends(get_assistant_status)]
+AssistantStatusDep = Annotated[tuple[bool, int, bool], Depends(get_assistant_status)]

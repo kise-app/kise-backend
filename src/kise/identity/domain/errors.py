@@ -82,3 +82,14 @@ class CurrencyChangeNotAllowed(DomainError):
             "The currency cannot be changed once expenses have been recorded, because existing "
             "amounts were written in the old currency"
         )
+
+
+class AdministratorNotFound(NotFound):
+    code = "administrator_not_found"
+
+
+class AdministratorAlreadyExists(Conflict):
+    code = "administrator_already_exists"
+
+    def __init__(self, email: str) -> None:
+        super().__init__("There is already an admin with that email", email=email)

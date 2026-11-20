@@ -18,6 +18,7 @@ drafts, the person confirms, and the app posts them to ``/api/expenses``.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from typing import Annotated, Any
 
@@ -189,7 +190,11 @@ class AnswerResponse(BaseModel):
 
 
 class StatusResponse(BaseModel):
+    #: The server has a model configured.
     enabled: bool
+    #: This owner's plan includes the assistant (Pro or a running trial). When false, every
+    #: route answers 403 ``upgrade_required``.
+    allowed: bool
     hourly_limit: int
     max_audio_bytes: int = MAX_AUDIO_BYTES
     max_image_bytes: int = MAX_IMAGE_BYTES
@@ -202,8 +207,8 @@ Assistant = AssistantDep
 
 @router.get("/status", response_model=StatusResponse)
 def status(state: AssistantStatusDep) -> StatusResponse:
-    enabled, limit = state
-    return StatusResponse(enabled=enabled, hourly_limit=limit)
+    enabled, limit, allowed = state
+    return StatusResponse(enabled=enabled, allowed=allowed, hourly_limit=limit)
 
 
 @router.post("/text", response_model=DraftReplyResponse)
@@ -259,10 +264,5 @@ def ask_voice(
 
 
 def _with_today(request: AssistantRequest, today: str | None) -> AssistantRequest:
-    return AssistantRequest(
-        owner_id=request.owner_id,
-        language=request.language,
-        calendar=request.calendar,
-        currency=request.currency,
-        client_today=_parse_today(today),
-    )
+    # ``replace`` keeps every other field — the plan check included — as the dependency set it.
+    return replace(request, client_today=_parse_today(today))

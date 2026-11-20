@@ -32,7 +32,12 @@ from kise.expense_tracking.application.services import (
 )
 from kise.expense_tracking.domain.models import default_units
 from kise.identity.application.ports import SocialVerifier
-from kise.identity.application.services import OwnerService
+from kise.identity.application.services import (
+    AccountAdministrationService,
+    AdministratorService,
+    OwnerService,
+    PlanService,
+)
 from kise.identity.domain.events import OwnerRegistered
 from kise.identity.infrastructure.bcrypt_hasher import BcryptPasswordHasher
 from kise.identity.infrastructure.jwt_token_service import JwtTokenService
@@ -42,6 +47,7 @@ from kise.identity.infrastructure.social import (
     GoogleVerifier,
     ProviderSocialVerifier,
 )
+from kise.platform.admin.sessions import AdminSessions
 from kise.platform.clock import SystemClock
 from kise.platform.config import Settings
 from kise.platform.database import build_engine, build_session_factory, create_all
@@ -62,7 +68,10 @@ class RequestServices:
     """
 
     uow: KiseUnitOfWork
+    admin: AccountAdministrationService
+    administrators: AdministratorService
     owners: OwnerService
+    plans: PlanService
     categories: CategoryService
     expenses: ExpenseService
     items: ItemService
@@ -99,6 +108,12 @@ class Container:
             settings, language_model
         )
         self._rate_limiter: RateLimiter = InMemoryRateLimiter(settings.assistant_hourly_limit)
+        # Admin portal: its own session cookie, and a sign-in throttle of 10 tries per 15 minutes
+        # per address.
+        self._admin_sessions = AdminSessions(
+            settings.secret_key, hours=settings.admin_session_hours
+        )
+        self._admin_login_limiter = InMemoryRateLimiter(10, window_seconds=15 * 60)
         self._social: SocialVerifier = social_verifier or ProviderSocialVerifier(
             google=GoogleVerifier(settings.google_client_id_list)
             if settings.google_client_id_list
@@ -139,6 +154,14 @@ class Container:
     @property
     def clock(self) -> Clock:
         return self._clock
+
+    @property
+    def admin_sessions(self) -> AdminSessions:
+        return self._admin_sessions
+
+    @property
+    def admin_login_limiter(self) -> RateLimiter:
+        return self._admin_login_limiter
 
     @property
     def settings(self) -> Settings:
@@ -197,6 +220,7 @@ class Container:
             uow=uow,
             linked_identities=uow.linked_identities,
             social=self._social,
+            plan_settings=uow.plan_settings,
         )
         categories = CategoryService(
             categories=uow.categories,
@@ -245,8 +269,25 @@ class Container:
             uow=uow,
             currency=currency,
         )
+        admin = AccountAdministrationService(
+            owners=uow.owners,
+            linked_identities=uow.linked_identities,
+            plan_settings=uow.plan_settings,
+            payment_settings=uow.payment_settings,
+            clock=self._clock,
+            uow=uow,
+        )
+        administrators = AdministratorService(
+            administrators=uow.administrators,
+            hasher=self._hasher,
+            clock=self._clock,
+            uow=uow,
+        )
         return RequestServices(
             uow=uow,
+            admin=admin,
+            administrators=administrators,
+            plans=PlanService(payment_settings=uow.payment_settings),
             owners=owners,
             categories=categories,
             expenses=expenses,
@@ -272,6 +313,7 @@ class Container:
             uow=uow,
             linked_identities=uow.linked_identities,
             social=self._social,
+            plan_settings=uow.plan_settings,
         )
         return uow, service
 

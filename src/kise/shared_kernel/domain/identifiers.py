@@ -72,3 +72,7 @@ class LinkedIdentityId(EntityId):
 
 class BudgetId(EntityId):
     """Identifies a Budget — a monthly spending limit, overall or for one category."""
+
+
+class AdministratorId(EntityId):
+    """Identifies an Administrator — someone who can sign in to the admin portal."""

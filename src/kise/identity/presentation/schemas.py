@@ -18,6 +18,7 @@ from kise.identity.application.commands import (
     UpdatePreferencesCommand,
 )
 from kise.identity.application.views import AuthenticatedOwner, OwnerProfile
+from kise.identity.domain.models import PaymentInstructions
 
 
 class RegisterRequest(BaseModel):
@@ -109,6 +110,26 @@ class UpdateProfileRequest(BaseModel):
         )
 
 
+class PlanResponse(BaseModel):
+    """The account's plan. ``effective`` is what is in force now: an ended trial is ``basic``."""
+
+    plan: str
+    effective: str
+    expires_at: str | None
+    days_left: int | None
+    ai_enabled: bool
+
+    @classmethod
+    def of(cls, profile: OwnerProfile) -> PlanResponse:
+        return cls(
+            plan=profile.plan.value,
+            effective=profile.effective_plan.value,
+            expires_at=profile.plan_expires_at.isoformat() if profile.plan_expires_at else None,
+            days_left=profile.plan_days_left,
+            ai_enabled=profile.ai_enabled,
+        )
+
+
 class ProfileResponse(BaseModel):
     id: str
     email: str
@@ -117,6 +138,7 @@ class ProfileResponse(BaseModel):
     language: str
     currency: str
     registered_at: str
+    plan: PlanResponse
 
     @classmethod
     def of(cls, profile: OwnerProfile) -> ProfileResponse:
@@ -128,6 +150,7 @@ class ProfileResponse(BaseModel):
             language=profile.language.value,
             currency=profile.currency,
             registered_at=profile.registered_at.isoformat(),
+            plan=PlanResponse.of(profile),
         )
 
 
@@ -147,4 +170,48 @@ class AuthResponse(BaseModel):
             expires_at=authenticated.token.expires_at.isoformat(),
             owner=ProfileResponse.of(authenticated.profile),
             created=authenticated.created,
+        )
+
+
+class PaymentAccountResponse(BaseModel):
+    bank: str
+    holder: str
+    number: str
+
+
+class PaymentInstructionsResponse(BaseModel):
+    """How to pay for Pro by hand: pay into an account, send the screenshot, an admin upgrades.
+
+    ``ready`` is False until an admin has entered an account and a way to reach Kise; the app then
+    just says "contact us". ``reference`` is what to quote with the screenshot so the admin finds
+    the right account: the person's email.
+    """
+
+    ready: bool
+    accounts: list[PaymentAccountResponse]
+    price: str
+    telegram: str
+    telegram_url: str | None
+    phone: str
+    email: str
+    note: str
+    reference: str
+
+    @classmethod
+    def of(
+        cls, instructions: PaymentInstructions, profile: OwnerProfile
+    ) -> PaymentInstructionsResponse:
+        return cls(
+            ready=instructions.ready,
+            accounts=[
+                PaymentAccountResponse(bank=a.bank, holder=a.holder, number=a.number)
+                for a in instructions.accounts
+            ],
+            price=instructions.price,
+            telegram=instructions.telegram,
+            telegram_url=instructions.telegram_url,
+            phone=instructions.phone,
+            email=instructions.email,
+            note=instructions.note,
+            reference=profile.email,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from kise.shared_kernel.domain.errors import (
+    PermissionDenied,
     ServiceUnavailable,
     TooManyRequests,
     UpstreamFailed,
@@ -15,6 +16,18 @@ class AssistantUnavailable(ServiceUnavailable):
 
     def __init__(self) -> None:
         super().__init__("The assistant is not switched on for this server")
+
+
+class UpgradeRequired(PermissionDenied):
+    """Voice, receipt scans and questions are Pro features (and the trial's)."""
+
+    code = "upgrade_required"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The assistant is part of Kise Pro. Your trial has ended or your plan is Basic.",
+            feature="assistant",
+        )
 
 
 class AssistantFailed(UpstreamFailed):

@@ -14,6 +14,7 @@ from kise.identity.domain.value_objects import (
     EmailAddress,
     PasswordHash,
     Preferences,
+    Subscription,
     clean_display_name,
 )
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind, Language
@@ -34,6 +35,7 @@ class Owner(AggregateRoot):
         display_name: str,
         preferences: Preferences,
         registered_at: datetime,
+        subscription: Subscription | None = None,
     ) -> None:
         super().__init__(owner_id)
         if not isinstance(email, EmailAddress):
@@ -47,6 +49,7 @@ class Owner(AggregateRoot):
         self._display_name = clean_display_name(display_name)
         self._preferences = preferences
         self._registered_at = registered_at
+        self._subscription = subscription or Subscription()
 
     # -- construction ---------------------------------------------------
     @classmethod
@@ -59,6 +62,7 @@ class Owner(AggregateRoot):
         registered_at: datetime,
         preferences: Preferences | None = None,
         owner_id: OwnerId | None = None,
+        subscription: Subscription | None = None,
     ) -> Owner:
         """Create a new Owner and announce it.
 
@@ -72,6 +76,7 @@ class Owner(AggregateRoot):
             display_name=display_name,
             preferences=preferences or Preferences(),
             registered_at=registered_at,
+            subscription=subscription,
         )
         owner.record_event(
             OwnerRegistered(
@@ -113,6 +118,10 @@ class Owner(AggregateRoot):
     def currency(self) -> str:
         return self._preferences.currency
 
+    @property
+    def subscription(self) -> Subscription:
+        return self._subscription
+
     # -- behaviour ------------------------------------------------------
     def rename(self, display_name: str) -> None:
         self._display_name = clean_display_name(display_name)
@@ -134,6 +143,12 @@ class Owner(AggregateRoot):
         if password_hash == self._password_hash:
             raise InvariantViolation("The new password must differ from the current one")
         self._password_hash = password_hash
+
+    def change_subscription(self, subscription: Subscription) -> None:
+        """Move to another plan (an admin's decision today; a payment's, later)."""
+        if not isinstance(subscription, Subscription):
+            raise ValidationError("subscription must be a Subscription")
+        self._subscription = subscription
 
     def change_currency(self, currency: str) -> None:
         """Change the reporting currency.

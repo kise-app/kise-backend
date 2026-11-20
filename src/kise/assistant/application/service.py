@@ -36,7 +36,12 @@ from kise.assistant.domain.drafts import (
     build_fixed_drafts,
     build_payment_drafts,
 )
-from kise.assistant.domain.errors import AssistantFailed, MediaTooLarge, UnsupportedMedia
+from kise.assistant.domain.errors import (
+    AssistantFailed,
+    MediaTooLarge,
+    UnsupportedMedia,
+    UpgradeRequired,
+)
 from kise.shared_kernel.application.ports import Clock
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.errors import ValidationError
@@ -83,6 +88,8 @@ class AssistantRequest:
     calendar: CalendarKind = CalendarKind.ETHIOPIAN
     currency: str = "ETB"
     client_today: date | None = None
+    #: Whether the owner's plan includes the assistant (Pro, or a running trial).
+    allowed: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +128,13 @@ class AssistantService:
         self._clock = clock
 
     # -- helpers --------------------------------------------------------
+    @staticmethod
+    def _entitled(request: AssistantRequest) -> None:
+        """Checked before anything else — before the allowance, before reading any file — so a
+        Basic account never costs a model call."""
+        if not request.allowed:
+            raise UpgradeRequired
+
     def _today(self, request: AssistantRequest) -> date:
         """The person's today. The server runs on UTC and Ethiopia is UTC+3, so the client's date
         is preferred — but only within a day of the server's, so it cannot be used to backdate."""
@@ -131,6 +145,7 @@ class AssistantService:
         return server
 
     def _extract(self, request: AssistantRequest, parts: list[Part], source: str) -> DraftReply:
+        self._entitled(request)
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
         catalog = self._spending.catalog(request.owner_id, request.calendar, today)
@@ -181,6 +196,7 @@ class AssistantService:
 
     # -- use cases ------------------------------------------------------
     def read_text(self, request: AssistantRequest, text: str) -> DraftReply:
+        self._entitled(request)
         cleaned = " ".join((text or "").split())
         if not cleaned:
             raise ValidationError("Say what you spent", field="text")
@@ -193,12 +209,14 @@ class AssistantService:
     def read_voice(
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> DraftReply:
+        self._entitled(request)
         audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
         return self._extract(request, [audio], "voice")
 
     def read_receipt(
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> DraftReply:
+        self._entitled(request)
         image = self._checked_media(data, content_type, IMAGE_TYPES, MAX_IMAGE_BYTES)
         return self._extract(request, [image], "receipt")
 
@@ -206,6 +224,7 @@ class AssistantService:
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> AnswerReply:
         """A question asked out loud: transcribed and answered in one call."""
+        self._entitled(request)
         audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
@@ -226,6 +245,7 @@ class AssistantService:
         )
 
     def ask(self, request: AssistantRequest, question: str) -> AnswerReply:
+        self._entitled(request)
         cleaned = " ".join((question or "").split())
         if not cleaned:
             raise ValidationError("Ask a question", field="question")

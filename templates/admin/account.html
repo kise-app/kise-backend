@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% from "admin/_macros.html" import plan_badge, notice %}
+{% set p = account.profile %}
+{% block title %}{{ p.display_name }}{% endblock %}
+{% block content %}
+<a href="{{ portal }}/accounts" class="text-sm text-ink-muted hover:text-ink">← Accounts</a>
+<h1 class="mt-2 text-2xl font-semibold">{{ p.display_name }}</h1>
+<p class="mb-6 text-ink-muted">{{ p.email }}</p>
+{% if saved == "plan" %}{{ notice("Plan updated. The app picks it up the next time it opens.") }}{% endif %}
+{% if error %}{{ notice(error, "error") }}{% endif %}
+
+<div class="grid gap-6 lg:grid-cols-2">
+  <section class="rounded-2xl border border-line bg-card p-6">
+    <h2 class="mb-4 text-lg font-semibold">Account</h2>
+    <dl class="grid grid-cols-3 gap-y-3 text-sm">
+      <dt class="text-ink-muted">Plan now</dt>
+      <dd class="col-span-2" data-testid="effective-plan">{{ plan_badge(p.effective_plan.value) }}{% if p.effective_plan != p.plan %} <span class="text-ink-muted">({{ p.plan.value }} ended)</span>{% endif %}</dd>
+      <dt class="text-ink-muted">Ends</dt>
+      <dd class="col-span-2">{% if p.plan_expires_at %}{{ p.plan_expires_at.strftime("%Y-%m-%d %H:%M UTC") }}{% if p.plan_days_left is not none %} · {{ p.plan_days_left }} days left{% endif %}{% else %}No end{% endif %}</dd>
+      <dt class="text-ink-muted">Assistant</dt>
+      <dd class="col-span-2">{{ "Included" if p.ai_enabled else "Not included" }}</dd>
+      <dt class="text-ink-muted">Signs in with</dt>
+      <dd class="col-span-2">{{ account.sign_in_methods | join(", ") }}</dd>
+      <dt class="text-ink-muted">Calendar · language</dt>
+      <dd class="col-span-2">{{ p.calendar.value }} · {{ p.language.value }}</dd>
+      <dt class="text-ink-muted">Currency</dt>
+      <dd class="col-span-2">{{ p.currency }}</dd>
+      <dt class="text-ink-muted">Joined</dt>
+      <dd class="col-span-2">{{ p.registered_at.strftime("%Y-%m-%d") }}</dd>
+    </dl>
+  </section>
+
+  <section class="rounded-2xl border border-line bg-card p-6">
+    <h2 class="text-lg font-semibold">Change plan</h2>
+    <p class="mt-1 text-sm text-ink-muted">Basic: everything except the assistant. Trial and Pro: everything. A trial needs a length; Pro without a length has no end.</p>
+    <form method="post" action="{{ portal }}/accounts/{{ p.owner_id }}/plan" class="mt-4 space-y-4">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <fieldset>
+        <legend class="mb-2 text-sm font-medium">Plan</legend>
+        <div class="flex gap-2">
+          {% for plan in plans %}
+          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-line px-3 py-2 has-checked:border-forest has-checked:bg-forest-50">
+            <input type="radio" name="plan" value="{{ plan }}" required {% if plan == p.effective_plan.value %}checked{% endif %}>
+            <span class="capitalize">{{ plan }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <div>
+        <label for="days" class="mb-1 block text-sm font-medium">Days <span class="font-normal text-ink-muted">(from now; ignored for Basic)</span></label>
+        <input id="days" name="days" type="number" min="1" max="{{ max_grant_days }}" placeholder="e.g. 30"
+               class="w-32 rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+      </div>
+      <button type="submit" class="rounded-lg bg-forest px-4 py-2 font-semibold text-white hover:bg-forest-bright">Save plan</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

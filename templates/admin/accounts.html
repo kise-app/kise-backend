@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% from "admin/_macros.html" import plan_badge %}
+{% block title %}Accounts{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-semibold">Accounts</h1>
+    <p class="text-sm text-ink-muted">{{ result.total }} {{ "account" if result.total == 1 else "accounts" }}{% if q %} matching “{{ q }}”{% endif %}</p>
+  </div>
+  <form method="get" action="{{ portal }}/accounts" role="search" class="flex gap-2">
+    <label for="q" class="sr-only">Search by name or email</label>
+    <input id="q" name="q" type="search" value="{{ q }}" placeholder="Name or email" maxlength="100"
+           class="w-64 rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+    <button type="submit" class="rounded-lg border border-line bg-card px-4 py-2 hover:bg-page">Search</button>
+  </form>
+</div>
+
+<div class="overflow-x-auto rounded-2xl border border-line bg-card">
+  <table class="w-full text-left text-sm">
+    <thead class="border-b border-line text-ink-muted">
+      <tr>
+        <th scope="col" class="px-4 py-3 font-medium">Account</th>
+        <th scope="col" class="px-4 py-3 font-medium">Plan now</th>
+        <th scope="col" class="px-4 py-3 font-medium">Ends</th>
+        <th scope="col" class="px-4 py-3 font-medium">Signs in with</th>
+        <th scope="col" class="px-4 py-3 font-medium">Joined</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for account in result.accounts %}
+      {% set p = account.profile %}
+      <tr class="border-b border-line-soft last:border-0 hover:bg-page">
+        <td class="px-4 py-3">
+          <a href="{{ portal }}/accounts/{{ p.owner_id }}" class="font-medium text-forest hover:underline">{{ p.display_name }}</a>
+          <div class="text-ink-muted">{{ p.email }}</div>
+        </td>
+        <td class="px-4 py-3">{{ plan_badge(p.effective_plan.value) }}</td>
+        <td class="px-4 py-3 text-ink-muted">
+          {% if p.plan_days_left is not none %}{{ p.plan_expires_at.strftime("%Y-%m-%d") }} · {{ p.plan_days_left }} d{% else %}—{% endif %}
+        </td>
+        <td class="px-4 py-3 text-ink-muted">{{ account.sign_in_methods | join(", ") }}</td>
+        <td class="px-4 py-3 text-ink-muted">{{ p.registered_at.strftime("%Y-%m-%d") }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="px-4 py-10 text-center text-ink-muted">No accounts{% if q %} match “{{ q }}”{% endif %}.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<nav aria-label="Pages" class="mt-4 flex items-center justify-between text-sm">
+  {% if page > 1 %}<a href="{{ portal }}/accounts?q={{ q | urlencode }}&page={{ page - 1 }}" class="rounded-lg border border-line px-3 py-1.5 hover:bg-card">← Previous</a>{% else %}<span></span>{% endif %}
+  <span class="text-ink-muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a href="{{ portal }}/accounts?q={{ q | urlencode }}&page={{ page + 1 }}" class="rounded-lg border border-line px-3 py-1.5 hover:bg-card">Next →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

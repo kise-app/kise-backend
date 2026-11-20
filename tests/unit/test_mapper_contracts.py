@@ -22,13 +22,18 @@ from kise.expense_tracking.infrastructure.persistence.mappers import (
     FixedExpenseMapper,
     SettlementMapper,
 )
-from kise.identity.domain.mappers import LinkedIdentityMapping, OwnerMapping
-from kise.identity.infrastructure.persistence.mappers import LinkedIdentityMapper, OwnerMapper
+from kise.identity.domain.mappers import AdministratorMapping, LinkedIdentityMapping, OwnerMapping
+from kise.identity.infrastructure.persistence.mappers import (
+    AdministratorMapper,
+    LinkedIdentityMapper,
+    OwnerMapper,
+)
 from kise.shared_kernel.domain.mapper import Mapper
 
 IMPLEMENTATIONS = [
     (OwnerMapper, OwnerMapping),
     (LinkedIdentityMapper, LinkedIdentityMapping),
+    (AdministratorMapper, AdministratorMapping),
     (CategoryMapper, CategoryMapping),
     (ExpenseMapper, ExpenseMapping),
     (FixedExpenseMapper, FixedExpenseMapping),

@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% from "admin/_macros.html" import notice %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<div class="mx-auto mt-16 max-w-sm">
+  <div class="mb-8 flex items-center gap-3">
+    <img src="/static/coin.svg" alt="" width="40" height="40">
+    <div>
+      <h1 class="text-xl font-semibold">Kise admin</h1>
+      <p class="text-sm text-ink-muted">Sign in with your admin account.</p>
+    </div>
+  </div>
+  {% if error %}{{ notice(error, "error") }}{% endif %}
+  {% if no_admins %}
+  <div role="status" class="mb-6 rounded-xl border border-line bg-card px-4 py-3 text-sm">
+    <p class="font-medium">No admin yet</p>
+    <p class="mt-1 text-ink-muted">Create the first one on the server, then sign in here:</p>
+    <code class="mt-2 block rounded-lg bg-page px-3 py-2 text-xs">python -m kise.platform.admin create</code>
+  </div>
+  {% endif %}
+  <form method="post" action="{{ portal }}/login" class="space-y-4 rounded-2xl border border-line bg-card p-6 shadow-card">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div>
+      <label for="email" class="mb-1 block text-sm font-medium">Email</label>
+      <input id="email" name="email" type="email" required autocomplete="username" value="{{ email }}"
+             class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+    </div>
+    <div>
+      <label for="password" class="mb-1 block text-sm font-medium">Password</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password"
+             class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+    </div>
+    <button type="submit" class="w-full rounded-lg bg-forest px-4 py-2.5 font-semibold text-white hover:bg-forest-bright">Sign in</button>
+  </form>
+</div>
+{% endblock %}

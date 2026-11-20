@@ -1,0 +1,13 @@
+{#- Shared bits: plan badges and notices. -#}
+{% macro plan_badge(plan) -%}
+{%- set styles = {
+  "pro": "bg-forest text-white",
+  "trial": "bg-gold-50 text-gold-deep",
+  "basic": "bg-line-soft text-ink-muted",
+} -%}
+<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide {{ styles.get(plan, styles['basic']) }}">{{ plan }}</span>
+{%- endmacro %}
+
+{% macro notice(text, kind="ok") -%}
+<div role="{{ 'alert' if kind == 'error' else 'status' }}" class="mb-6 rounded-xl border px-4 py-3 text-sm {{ 'border-red-300 bg-red-50 text-red-800' if kind == 'error' else 'border-forest-200/30 bg-forest-50 text-forest' }}">{{ text }}</div>
+{%- endmacro %}

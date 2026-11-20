@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     facebook_app_id: str = ""
     facebook_app_secret: str = ""
 
+    # The admin portal at /kise-office. Admins are not configured here: the first is created with
+    # `python -m kise.platform.admin create`, and admins add each other in the portal.
+    # Hours an admin portal session lasts before signing in again.
+    admin_session_hours: int = 8
+
     @staticmethod
     def _split(value: str) -> list[str]:
         return [part.strip() for part in value.split(",") if part.strip()]

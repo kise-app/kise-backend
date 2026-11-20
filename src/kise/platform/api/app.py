@@ -31,7 +31,9 @@ from kise.expense_tracking.presentation.routers.fixed_expenses import (
 from kise.expense_tracking.presentation.routers.items import router as items_router
 from kise.expense_tracking.presentation.routers.reports import router as reports_router
 from kise.expense_tracking.presentation.routers.units import router as units_router
+from kise.identity.presentation.plans_router import router as plans_router
 from kise.identity.presentation.router import router as auth_router
+from kise.platform.admin.router import router as admin_router
 from kise.platform.api.errors import install_error_handlers
 from kise.platform.api.landing import STATIC_DIR, STATIC_PATH, render_landing_page
 from kise.platform.config import Settings, get_settings
@@ -78,6 +80,7 @@ def create_app(
     install_error_handlers(app)
 
     app.include_router(auth_router)
+    app.include_router(plans_router)
     app.include_router(categories_router)
     app.include_router(expenses_router)
     app.include_router(fixed_expenses_router)
@@ -86,6 +89,7 @@ def create_app(
     app.include_router(reports_router)
     app.include_router(budgets_router)
     app.include_router(assistant_router)
+    app.include_router(admin_router)
 
     # The landing page's assets: the favicon and, under static/styles/, the stylesheet compiled by
     # `make web-css`.

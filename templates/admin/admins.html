@@ -1,0 +1,65 @@
+{% extends "admin/base.html" %}
+{% from "admin/_macros.html" import notice %}
+{% block title %}Admins{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-semibold">Admins</h1>
+<p class="mb-6 text-ink-muted">People who can sign in here. They are separate from app accounts.</p>
+{% if saved == "added" %}{{ notice("Admin added. Give them their password in person or by phone, and ask them to change it.") }}{% endif %}
+{% if saved == "removed" %}{{ notice("Admin removed. They are signed out.") }}{% endif %}
+{% if error %}{{ notice(error, "error") }}{% endif %}
+
+<div class="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
+  <section class="overflow-hidden rounded-2xl border border-line bg-card">
+    <table class="w-full text-left text-sm">
+      <caption class="sr-only">Admins</caption>
+      <thead class="border-b border-line bg-page text-ink-muted">
+        <tr>
+          <th scope="col" class="px-4 py-3 font-medium">Email</th>
+          <th scope="col" class="px-4 py-3 font-medium">Added</th>
+          <th scope="col" class="px-4 py-3"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in admins %}
+        <tr class="border-b border-line-soft last:border-0" data-testid="admin-row">
+          <td class="px-4 py-3 font-medium">{{ a.email }}{% if a.administrator_id == admin.administrator_id %} <span class="font-normal text-ink-muted">(you)</span>{% endif %}</td>
+          <td class="px-4 py-3 text-ink-muted">{{ a.created_at.strftime("%Y-%m-%d") }} · {{ "by " ~ a.created_by_email if a.created_by_email else "from the command line" }}</td>
+          <td class="px-4 py-3 text-right">
+            {% if a.administrator_id != admin.administrator_id %}
+            <form method="post" action="{{ portal }}/admins/{{ a.administrator_id }}/remove">
+              <input type="hidden" name="csrf" value="{{ csrf_token }}">
+              <button type="submit" class="rounded-lg border border-line px-3 py-1.5 text-red-700 hover:bg-red-50" aria-label="Remove {{ a.email }}">Remove</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="rounded-2xl border border-line bg-card p-6">
+    <h2 class="text-lg font-semibold">Add an admin</h2>
+    <p class="mt-1 text-sm text-ink-muted">Choose a first password for them, at least {{ min_password }} characters. They can change it under their email at the top of the page.</p>
+    <form method="post" action="{{ portal }}/admins" class="mt-4 space-y-4">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <div>
+        <label for="email" class="mb-1 block text-sm font-medium">Email</label>
+        <input id="email" name="email" type="email" required maxlength="254" autocomplete="off" value="{{ email }}"
+               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+      </div>
+      <div>
+        <label for="password" class="mb-1 block text-sm font-medium">First password</label>
+        <input id="password" name="password" type="password" required minlength="{{ min_password }}" maxlength="72" autocomplete="new-password"
+               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+      </div>
+      <div>
+        <label for="confirm" class="mb-1 block text-sm font-medium">Repeat it</label>
+        <input id="confirm" name="confirm" type="password" required minlength="{{ min_password }}" maxlength="72" autocomplete="new-password"
+               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+      </div>
+      <button type="submit" class="rounded-lg bg-forest px-4 py-2 font-semibold text-white hover:bg-forest-bright">Add admin</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -45,6 +45,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       ASSISTANT_HOURLY_LIMIT: ${ASSISTANT_HOURLY_LIMIT:-30}
+      ADMIN_SESSION_HOURS: ${ADMIN_SESSION_HOURS:-8}
     ports:
       - "${BACKEND_PORT}:8000"
     # Migrate, then serve. Migrations own the schema in a real environment (not create_all).

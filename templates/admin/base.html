@@ -1,0 +1,45 @@
+{#-
+  Admin portal layout. Served by kise.platform.admin.router; styled by the same Tailwind bundle as
+  the landing page (static/styles/app.css), in its light "cream" variant (.light re-declares the
+  brand tokens). Context: style_path, csrf_token, request_path, admin (absent on the sign-in page).
+-#}
+<!doctype html>
+<html lang="en" class="[color-scheme:light]">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Admin{% endblock %} · Kise admin</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ style_path }}/app.css">
+</head>
+<body class="light min-h-screen bg-page bg-none text-ink antialiased accent-forest">
+  {% if admin %}
+  <header class="border-b border-line bg-card">
+    <div class="mx-auto flex max-w-6xl items-center gap-6 px-6 py-4">
+      <a href="{{ portal }}" class="flex items-center gap-2 font-semibold">
+        <img src="/static/coin.svg" alt="" width="28" height="28">
+        <span>Kise <span class="text-ink-muted font-normal">admin</span></span>
+      </a>
+      <nav class="flex gap-1 text-sm" aria-label="Admin">
+        {% set links = [(portal, "Overview"), (portal ~ "/accounts", "Accounts"), (portal ~ "/payments", "Payments"), (portal ~ "/admins", "Admins")] %}
+        {% for href, label in links %}
+        {% set current = request_path == href or (href != portal and request_path.startswith(href)) %}
+        <a href="{{ href }}" class="rounded-lg px-3 py-2 {{ 'bg-forest-50 font-semibold text-forest' if current else 'text-ink-muted hover:text-ink' }}"{% if current %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <div class="ml-auto flex items-center gap-4 text-sm">
+        <a href="{{ portal }}/password" class="text-ink-muted hover:text-ink" title="Change your password">{{ admin.email }}</a>
+        <form method="post" action="{{ portal }}/logout">
+          <input type="hidden" name="csrf" value="{{ csrf_token }}">
+          <button type="submit" class="rounded-lg border border-line px-3 py-1.5 hover:bg-page">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+  <main class="mx-auto max-w-6xl px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

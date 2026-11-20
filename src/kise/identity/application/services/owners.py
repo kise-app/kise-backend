@@ -43,12 +43,15 @@ from kise.identity.domain.models import (
     EmailAddress,
     LinkedIdentity,
     Owner,
+    PlanPolicy,
     Preferences,
     SocialProvider,
+    Subscription,
 )
 from kise.identity.infrastructure.persistence.repository import (
     SqlAlchemyLinkedIdentityRepository,
     SqlAlchemyOwnerRepository,
+    SqlAlchemyPlanSettingsRepository,
 )
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
 from kise.shared_kernel.domain.errors import InvariantViolation
@@ -68,7 +71,9 @@ class OwnerService:
         *,
         linked_identities: SqlAlchemyLinkedIdentityRepository | None = None,
         social: SocialVerifier | None = None,
+        plan_settings: SqlAlchemyPlanSettingsRepository | None = None,
     ) -> None:
+        self._plan_settings = plan_settings
         self._linked = linked_identities
         self._social = social
         self._owners = owners
@@ -103,6 +108,7 @@ class OwnerService:
             display_name=command.display_name,
             registered_at=self._clock.now(),
             preferences=preferences,
+            subscription=self._new_account_subscription(),
         )
         self._owners.add(owner)
         # Committing publishes OwnerRegistered, which is what seeds the default categories.
@@ -173,6 +179,7 @@ class OwnerService:
             display_name=self._display_name(command.display_name, account, email),
             registered_at=self._clock.now(),
             preferences=preferences,
+            subscription=self._new_account_subscription(),
         )
         self._owners.add(owner)
         self._link(owner, account)
@@ -180,6 +187,11 @@ class OwnerService:
         return AuthenticatedOwner(
             self._profile(owner), self._tokens.issue(owner.id), created=True
         )
+
+    def _new_account_subscription(self) -> Subscription:
+        """What a new account starts on, by the admin-set ``PlanPolicy``."""
+        policy = self._plan_settings.get() if self._plan_settings is not None else PlanPolicy()
+        return policy.new_account_subscription(self._clock.now())
 
     def _link(self, owner: Owner, account: VerifiedSocialAccount) -> None:
         assert self._linked is not None  # checked by the caller
@@ -255,14 +267,6 @@ class OwnerService:
         return self.profile(self._tokens.read(token))
 
     # -- internals ------------------------------------------------------
-    @staticmethod
-    def _profile(owner: Owner) -> OwnerProfile:
-        return OwnerProfile(
-            owner_id=owner.id,
-            email=str(owner.email),
-            display_name=owner.display_name,
-            calendar=owner.preferences.calendar,
-            language=owner.preferences.language,
-            currency=owner.preferences.currency,
-            registered_at=owner.registered_at,
-        )
+    def _profile(self, owner: Owner) -> OwnerProfile:
+        return OwnerProfile.of(owner, self._clock.now())
+
