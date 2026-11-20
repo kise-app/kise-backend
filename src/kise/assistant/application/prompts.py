@@ -39,6 +39,11 @@ def extraction_schema(catalog: Catalog) -> dict[str, Any]:
                 "santim). A receipt line's total, not its unit price.",
             },
             "category_id": {"type": "string", "enum": category_ids},
+            "new_category": {
+                "type": "string",
+                "description": "Only when no category in the list fits at all: a short name "
+                "for a new one, in the person's language (Rent, ኪራይ, School). Empty otherwise.",
+            },
             "date_kind": {
                 "type": "string",
                 "enum": list(DATE_KINDS),
@@ -72,6 +77,11 @@ def extraction_schema(catalog: Catalog) -> dict[str, Any]:
             "title": {"type": "string", "description": "Short name: Rent, Internet, School fees."},
             "amount": {"type": "number", "description": "The monthly amount, in major units."},
             "category_id": {"type": "string", "enum": category_ids},
+            "new_category": {
+                "type": "string",
+                "description": "Only when no category in the list fits at all: a short name "
+                "for a new one, in the person's language (Rent, ኪራይ, School). Empty otherwise.",
+            },
             "due_day": {
                 "type": "integer",
                 "description": "Day of the month it is due, 1-30. 1 when not said.",
@@ -176,7 +186,9 @@ def extraction_instructions(
             "- One entry per distinct thing paid for. 'bread 40, coffee 30' is two entries.",
             "- Amounts are in major units: '150 ብር' is 150. 'ሺ' or 'k' means thousand.",
             "- Pick category_id from the list below; use the closest match, or the Other "
-            "category when nothing fits.",
+            "category when nothing fits. When none of them fits at all, also put a short name "
+            "for a new category in new_category (the person can accept it); leave it empty "
+            "whenever a listed category will do.",
             "- Dates: 'ዛሬ'/'today' -> today; 'ትናንት'/'yesterday' -> days_ago 1. A written date "
             "goes in date in the calendar it was written in, with date_kind saying which. "
             "Ethiopian years are around 2018-2019; Gregorian around 2025-2027. Do not convert "

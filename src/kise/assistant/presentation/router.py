@@ -84,8 +84,11 @@ class DraftResponse(BaseModel):
     note: str | None
     item: DraftItemResponse | None
     warnings: list[str] = Field(
-        description="date_unclear, date_in_future, date_long_ago, category_guessed"
+        description="date_unclear, date_in_future, date_long_ago, category_guessed, new_category"
     )
+    #: A category to create because none of the person's fits; null otherwise. The draft is filed
+    #: under category_id until the app creates it.
+    new_category: str | None = None
 
     @classmethod
     def of(cls, draft: DraftExpense, currency: str) -> DraftResponse:
@@ -107,6 +110,7 @@ class DraftResponse(BaseModel):
             if item
             else None,
             warnings=list(draft.warnings),
+            new_category=draft.new_category,
         )
 
 
@@ -124,6 +128,7 @@ class FixedDraftResponse(BaseModel):
     start_period: dict[str, Any]
     note: str | None
     warnings: list[str]
+    new_category: str | None = None
 
     @classmethod
     def of(cls, draft: FixedDraft, currency: str) -> FixedDraftResponse:
@@ -137,6 +142,7 @@ class FixedDraftResponse(BaseModel):
             start_period=_period(draft.start_period),
             note=draft.note,
             warnings=list(draft.warnings),
+            new_category=draft.new_category,
         )
 
 

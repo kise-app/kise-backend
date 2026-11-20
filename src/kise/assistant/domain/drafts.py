@@ -46,6 +46,8 @@ MAX_DRAFTS = 25
 MAX_AMOUNT_MAJOR = Decimal("10000000")
 MAX_NOTE_LENGTH = 280
 MAX_ITEM_NAME_LENGTH = 60
+#: As long as a category name may be (Expense Tracking's own limit).
+MAX_CATEGORY_NAME_LENGTH = 60
 #: How far back a date may be before it is flagged as suspicious.
 STALE_AFTER_DAYS = 366
 
@@ -91,6 +93,18 @@ class Catalog:
     def category(self, category_id: str) -> CategoryOption | None:
         return next((c for c in self.categories if c.id == category_id), None)
 
+    def category_named(self, name: str) -> CategoryOption | None:
+        """The person's category with this name, in English or Amharic, ignoring case."""
+        wanted = " ".join(name.split()).casefold()
+        return next(
+            (
+                c
+                for c in self.categories
+                if c.name.casefold() == wanted or (c.name_am or "").casefold() == wanted
+            ),
+            None,
+        )
+
     @property
     def fallback_category(self) -> CategoryOption | None:
         """"Other" when the Owner has it, else the first category."""
@@ -125,6 +139,9 @@ class DraftExpense:
     note: str | None = None
     item: DraftItem | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    #: A category the model suggests creating because none of the person's fits. The draft is
+    #: filed under ``category_id`` (the closest or Other) until the person accepts it.
+    new_category: str | None = None
 
 
 def _text(value: Any, limit: int) -> str:
@@ -179,6 +196,31 @@ def resolve_date(raw: dict[str, Any], today: date) -> tuple[date, list[str]]:
     return resolved, warnings
 
 
+def _category(
+    raw: dict[str, Any], catalog: Catalog
+) -> tuple[CategoryOption | None, str | None, list[str]]:
+    """The category to file under, a suggested new one, and warnings.
+
+    A suggested name that matches one the person already has (in English or Amharic) is that
+    category, not a new one. A real suggestion keeps the model's pick (or Other) as where the
+    draft is filed until the person accepts the new category.
+    """
+    warnings: list[str] = []
+    suggestion = _text(raw.get("new_category"), MAX_CATEGORY_NAME_LENGTH) or None
+    if suggestion is not None:
+        existing = catalog.category_named(suggestion)
+        if existing is not None:
+            return existing, None, warnings
+    category = catalog.category(_text(raw.get("category_id"), 64))
+    if category is None:
+        category = catalog.fallback_category
+        if suggestion is None:
+            warnings.append("category_guessed")
+    if suggestion is not None:
+        warnings.append("new_category")
+    return category, suggestion, warnings
+
+
 def build_draft(raw: Any, catalog: Catalog, today: date) -> DraftExpense | None:
     """One draft from one entry of the model's ``expenses`` list, or None if it is unusable."""
     if not isinstance(raw, dict):
@@ -190,11 +232,7 @@ def build_draft(raw: Any, catalog: Catalog, today: date) -> DraftExpense | None:
     if amount_minor <= 0:
         return None
 
-    warnings: list[str] = []
-    category = catalog.category(_text(raw.get("category_id"), 64))
-    if category is None:
-        category = catalog.fallback_category
-        warnings.append("category_guessed")
+    category, new_category, warnings = _category(raw, catalog)
     if category is None:
         return None
 
@@ -228,6 +266,7 @@ def build_draft(raw: Any, catalog: Catalog, today: date) -> DraftExpense | None:
         note=note,
         item=item,
         warnings=tuple(dict.fromkeys(warnings)),
+        new_category=new_category,
     )
 
 
@@ -264,6 +303,8 @@ class FixedDraft:
     start_period: Period
     note: str | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    #: As on ``DraftExpense``: a new category the model suggests.
+    new_category: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,11 +337,7 @@ def build_fixed_draft(
     if not title or amount_minor is None:
         return None
 
-    warnings: list[str] = []
-    category = catalog.category(_text(raw.get("category_id"), 64))
-    if category is None:
-        category = catalog.fallback_category
-        warnings.append("category_guessed")
+    category, new_category, warnings = _category(raw, catalog)
     if category is None:
         return None
 
@@ -325,6 +362,7 @@ def build_fixed_draft(
         start_period=start,
         note=_text(raw.get("note"), MAX_NOTE_LENGTH) or None,
         warnings=tuple(dict.fromkeys(warnings)),
+        new_category=new_category,
     )
 
 

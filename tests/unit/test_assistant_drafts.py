@@ -258,3 +258,66 @@ def test_paying_an_already_paid_month_is_flagged():
         [{"commitment_id": "fx-1", "amount": 0, "date_kind": "today"}], paid, TODAY
     )
     assert "already_paid" in payment.warnings
+
+
+# -- a new category, when none of the person's fits -----------------------------------
+
+
+def _catalog_with_other():
+    from kise.assistant.domain.drafts import Catalog, CategoryOption
+
+    return Catalog(
+        categories=(
+            CategoryOption("food", "Food", "ምግብ"),
+            CategoryOption("other", "Other", "ሌላ"),
+        )
+    )
+
+
+def test_a_suggested_category_is_kept_while_the_draft_is_filed_under_other():
+    from datetime import date
+
+    from kise.assistant.domain.drafts import build_draft
+
+    draft = build_draft(
+        {"amount": 8000, "category_id": "other", "new_category": " Rent ", "date_kind": "today",
+         "payment_method": "bank"},
+        _catalog_with_other(),
+        date(2026, 9, 4),
+    )
+    assert draft.category_id == "other"
+    assert draft.new_category == "Rent"
+    assert draft.warnings == ("new_category",)
+
+
+def test_a_suggestion_that_names_an_existing_category_is_that_category():
+    from datetime import date
+
+    from kise.assistant.domain.drafts import build_draft
+
+    for name in ("food", "ምግብ"):
+        draft = build_draft(
+            {"amount": 40, "category_id": "other", "new_category": name, "date_kind": "today",
+             "payment_method": "cash"},
+            _catalog_with_other(),
+            date(2026, 9, 4),
+        )
+        assert draft.category_id == "food" and draft.new_category is None
+        assert draft.warnings == ()
+
+
+def test_a_fixed_expense_can_suggest_a_category_too():
+    from datetime import date
+
+    from kise.assistant.domain.drafts import build_fixed_draft
+    from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
+
+    draft = build_fixed_draft(
+        {"title": "School fees", "amount": 3000, "category_id": "nope",
+         "new_category": "Education", "due_day": 5, "starts": "this_month"},
+        _catalog_with_other(),
+        date(2026, 9, 4),
+        CalendarKind.ETHIOPIAN,
+    )
+    assert draft.category_id == "other" and draft.new_category == "Education"
+    assert "category_guessed" not in draft.warnings
