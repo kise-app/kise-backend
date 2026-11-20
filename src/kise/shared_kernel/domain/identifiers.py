@@ -76,3 +76,7 @@ class BudgetId(EntityId):
 
 class AdministratorId(EntityId):
     """Identifies an Administrator — someone who can sign in to the admin portal."""
+
+
+class PlanId(EntityId):
+    """Identifies a PlanDefinition — one plan an admin offers (Trial, Basic, Pro, or one added)."""

@@ -10,7 +10,17 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from kise.platform.database import Base
@@ -20,6 +30,7 @@ __all__ = [
     "LinkedIdentityModel",
     "OwnerModel",
     "PaymentSettingsModel",
+    "PlanModel",
     "PlanSettingsModel",
 ]
 
@@ -37,7 +48,9 @@ class OwnerModel(Base):
     preferred_language: Mapped[str] = mapped_column(String(2))
     currency: Mapped[str] = mapped_column(String(3))
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    plan: Mapped[str] = mapped_column(String(8), default="basic", server_default="basic")
+    # A plan's code (``plans.code``). Not a foreign key: a plan is removed only once nobody is on
+    # it, and an unknown code reads as Basic.
+    plan: Mapped[str] = mapped_column(String(20), default="basic", server_default="basic")
     plan_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -53,9 +66,6 @@ class PlanSettingsModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trial_days: Mapped[int] = mapped_column(Integer, default=14)
-    # {"trial": {"receipts": null, "voice": null}, "basic": {"receipts": 0, "voice": 0}, ...}
-    # null is no monthly limit. A plan missing here keeps its default.
-    allowances: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class LinkedIdentityModel(Base):
@@ -108,9 +118,28 @@ class PaymentSettingsModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # [{"bank": ..., "holder": ..., "number": ...}, ...]
     accounts: Mapped[list] = mapped_column(JSON, default=list)
-    basic_price: Mapped[str] = mapped_column(String(120), default="")
-    pro_price: Mapped[str] = mapped_column(String(120), default="")
     telegram: Mapped[str] = mapped_column(String(32), default="")
     phone: Mapped[str] = mapped_column(String(32), default="")
     email: Mapped[str] = mapped_column(String(254), default="")
     note: Mapped[str] = mapped_column(Text, default="")
+
+
+class PlanModel(Base):
+    """One plan Kise offers. ``receipts`` / ``voice`` NULL is no monthly limit."""
+
+    __tablename__ = "plans"
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    price: Mapped[str] = mapped_column(String(120), default="")
+    typed_requests: Mapped[bool] = mapped_column(Boolean, default=False)
+    receipts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    voice: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    voice_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    visible: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"PlanModel(code={self.code!r})"

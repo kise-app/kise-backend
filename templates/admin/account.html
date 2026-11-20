@@ -14,7 +14,7 @@
     <h2 class="mb-4 text-lg font-semibold">Account</h2>
     <dl class="grid grid-cols-3 gap-y-3 text-sm">
       <dt class="text-ink-muted">Plan now</dt>
-      <dd class="col-span-2" data-testid="effective-plan">{{ plan_badge(p.effective_plan.value) }}{% if p.effective_plan != p.plan %} <span class="text-ink-muted">({{ p.plan.value }} ended)</span>{% endif %}</dd>
+      <dd class="col-span-2" data-testid="effective-plan">{{ plan_badge(p.effective_plan.value, p.plan_name) }}{% if p.effective_plan != p.plan %} <span class="text-ink-muted">({{ p.plan.value }} ended)</span>{% endif %}</dd>
       <dt class="text-ink-muted">Ends</dt>
       <dd class="col-span-2">{% if p.plan_expires_at %}{{ p.plan_expires_at.strftime("%Y-%m-%d %H:%M UTC") }}{% if p.plan_days_left is not none %} · {{ p.plan_days_left }} days left{% endif %}{% else %}No end{% endif %}</dd>
       <dt class="text-ink-muted">Assistant</dt>
@@ -32,16 +32,16 @@
 
   <section class="rounded-2xl border border-line bg-card p-6">
     <h2 class="text-lg font-semibold">Change plan</h2>
-    <p class="mt-1 text-sm text-ink-muted">Basic: everything except the assistant. Trial and Pro: everything. A trial needs a length; Pro without a length has no end.</p>
+    <p class="mt-1 text-sm text-ink-muted">What each plan includes is set under <a href="{{ portal }}/plans" class="text-forest hover:underline">Plans</a>. A trial needs a length; any other plan without a length has no end. Basic never ends.</p>
     <form method="post" action="{{ portal }}/accounts/{{ p.owner_id }}/plan" class="mt-4 space-y-4">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
       <fieldset>
         <legend class="mb-2 text-sm font-medium">Plan</legend>
-        <div class="flex gap-2">
-          {% for plan in plans %}
+        <div class="flex flex-wrap gap-2">
+          {% for plan, plan_name in plans %}
           <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-line px-3 py-2 has-checked:border-forest has-checked:bg-forest-50">
             <input type="radio" name="plan" value="{{ plan }}" required {% if plan == p.effective_plan.value %}checked{% endif %}>
-            <span class="capitalize">{{ plan }}</span>
+            <span>{{ plan_name }}</span>
           </label>
           {% endfor %}
         </div>

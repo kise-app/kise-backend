@@ -209,6 +209,8 @@ class StatusResponse(BaseModel):
     #: up, its routes answer 403 ``allowance_used_up`` until ``resets_on``.
     usage: list[UsageResponse] = []
     resets_on: str | None = None
+    #: The longest voice note this plan accepts; the app stops recording there.
+    max_voice_seconds: int = 60
     max_audio_bytes: int = MAX_AUDIO_BYTES
     max_image_bytes: int = MAX_IMAGE_BYTES
 
@@ -233,6 +235,7 @@ def status(state: AssistantStatusDep, assistant: Assistant) -> StatusResponse:
             for item in service.usage(request)
         ],
         resets_on=service.resets_on().isoformat(),
+        max_voice_seconds=request.allowance.voice_seconds,
     )
 
 

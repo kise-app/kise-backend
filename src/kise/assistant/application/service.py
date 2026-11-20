@@ -15,6 +15,7 @@ from datetime import date
 from typing import Any
 
 from kise.assistant.application.ports import (
+    AudioInspector,
     LanguageModel,
     MediaPart,
     Part,
@@ -43,6 +44,7 @@ from kise.assistant.domain.errors import (
     MediaTooLarge,
     UnsupportedMedia,
     UpgradeRequired,
+    VoiceNoteTooLong,
 )
 from kise.assistant.domain.usage import (
     Allowance,
@@ -50,6 +52,7 @@ from kise.assistant.domain.usage import (
     UsageSummary,
     month_of,
     next_month_start,
+    voice_within,
 )
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
@@ -134,7 +137,9 @@ class AssistantService:
         clock: Clock,
         usage: UsageRepository | None = None,
         uow: UnitOfWork | None = None,
+        audio: AudioInspector | None = None,
     ) -> None:
+        self._audio = audio
         # Both or neither: without them (tests, a server with no database) nothing is counted.
         self._usage = usage
         self._uow = uow
@@ -173,6 +178,15 @@ class AssistantService:
             return
         self._usage.add_one(request.owner_id, kind, self._period())
         self._uow.commit()
+
+    def _voice(self, request: AssistantRequest, data: bytes, content_type: str | None) -> MediaPart:
+        """A voice note that fits the plan: a known audio type, and no longer than allowed."""
+        audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
+        seconds = request.allowance.voice_seconds
+        duration = self._audio.duration_seconds(data, audio.mime_type) if self._audio else None
+        if not voice_within(seconds, duration=duration, size=len(data)):
+            raise VoiceNoteTooLong(seconds)
+        return audio
 
     def usage(self, request: AssistantRequest) -> tuple[UsageSummary, ...]:
         """This month's receipt scans and voice notes: the allowance and how many are used."""
@@ -265,7 +279,7 @@ class AssistantService:
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> DraftReply:
         self._check_allowance(request, UsageKind.VOICE)
-        audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
+        audio = self._voice(request, data, content_type)
         reply = self._extract(request, [audio], "voice")
         self._count(request, UsageKind.VOICE)
         return reply
@@ -284,7 +298,7 @@ class AssistantService:
     ) -> AnswerReply:
         """A question asked out loud: transcribed and answered in one call. Counts as voice."""
         self._check_allowance(request, UsageKind.VOICE)
-        audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
+        audio = self._voice(request, data, content_type)
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
         facts = self._spending.month_facts(request.owner_id, request.calendar, today, months=3)

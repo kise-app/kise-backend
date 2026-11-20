@@ -108,16 +108,18 @@ def get_assistant(
         clock=container.clock,
         usage=services.uow.assistant_usage,
         uow=services.uow,
+        audio=container.audio_inspector,
     )
-    # What the plan in force includes: an ended trial is Basic, and gets Basic's allowance.
-    plan_allowance = services.plans.allowance_for(owner.effective_plan)
     return service, AssistantRequest(
         owner_id=owner.owner_id,
         language=owner.language.value,
         calendar=owner.calendar,
         currency=owner.currency,
-        allowed=owner.ai_enabled,
-        allowance=Allowance(receipts=plan_allowance.receipts, voice=plan_allowance.voice),
+        # What the plan in force includes (a plan past its end is Basic, with Basic's allowance).
+        allowed=owner.typed_requests,
+        allowance=Allowance(
+            receipts=owner.receipts, voice=owner.voice, voice_seconds=owner.voice_seconds
+        ),
     )
 
 

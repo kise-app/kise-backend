@@ -23,12 +23,14 @@ from fastapi.testclient import TestClient
 from kise.assistant.application.ports import LanguageModel
 from kise.assistant.domain.errors import AssistantFailed
 from kise.identity.application.commands import AppointAdministratorCommand
+from kise.identity.domain.models import PlanCode, Subscription
 from kise.platform.admin.cli import main as admin_cli
 from kise.platform.admin.router import PORTAL
 from kise.platform.api.app import create_app
 from kise.platform.clock import FixedClock
 from kise.platform.config import Settings
 from kise.platform.container import Container
+from kise.shared_kernel.domain.identifiers import OwnerId
 
 SECRET = "a-secret-long-enough-to-be-taken-seriously-xxxx"
 PASSWORD = "correct horse battery"
@@ -150,9 +152,10 @@ def test_after_the_trial_the_account_is_basic_and_the_assistant_is_locked(
 def test_the_trial_can_use_the_assistant(client: TestClient, model: CountingModel):
     header = bearer(register(client))
     assert client.get("/api/assistant/status", headers=header).json()["allowed"] is True
-    assert client.post(
-        "/api/assistant/text", json={"text": "taxi 100"}, headers=header
-    ).status_code == 200
+    assert (
+        client.post("/api/assistant/text", json={"text": "taxi 100"}, headers=header).status_code
+        == 200
+    )
     assert model.calls == 1
 
 
@@ -219,8 +222,6 @@ def test_pages_cannot_be_framed_or_cached(client: TestClient):
     assert "frame-ancestors 'none'" in headers["content-security-policy"]
 
 
-
-
 def test_an_app_bearer_token_is_not_a_portal_session(client: TestClient):
     body = register(client, ADMIN)
     client.cookies.set("kise_admin", body["token"], path=PORTAL)
@@ -255,13 +256,10 @@ def test_overview_counts_and_trial_length(client: TestClient):
     assert "14 days of Pro features" in page
 
     plans = f"{PORTAL}/plans"
-    response = client.post(
-        f"{plans}/trial", data={"trial_days": "30", "csrf": csrf(client, plans)},
-        follow_redirects=False,
-    )
+    response = save_card(client, "trial", trial_days="30")
     assert response.status_code == 303
     assert response.headers["location"] == f"{plans}?saved=trial"
-    assert "Trial saved" in client.get(f"{plans}?saved=trial").text
+    assert "Saved." in client.get(f"{plans}?saved=trial").text
     assert "30 days of Pro features" in client.get(PORTAL).text
 
     later = register(client, "selam@example.com")["owner"]["plan"]
@@ -270,17 +268,13 @@ def test_overview_counts_and_trial_length(client: TestClient):
 
 def test_a_zero_day_trial_starts_new_accounts_on_basic(client: TestClient):
     signed_in_admin(client)
-    plans = f"{PORTAL}/plans"
-    client.post(f"{plans}/trial", data={"trial_days": "0", "csrf": csrf(client, plans)})
+    save_card(client, "trial", trial_days="0")
     assert register(client, "selam@example.com")["owner"]["plan"]["effective"] == "basic"
 
 
 def test_an_out_of_range_trial_length_is_explained(client: TestClient):
     signed_in_admin(client)
-    plans = f"{PORTAL}/plans"
-    response = client.post(
-        f"{plans}/trial", data={"trial_days": "999", "csrf": csrf(client, plans)}
-    )
+    response = save_card(client, "trial", trial_days="999")
     assert response.status_code == 422
     assert "from 0 to 365" in response.text
     assert 'value="999"' in response.text, "what was typed stays in the open card"
@@ -307,9 +301,12 @@ def test_search_and_change_a_plan(client: TestClient, clock: Clock, model: Count
     me = client.get("/api/auth/me", headers=bearer(abebe)).json()
     assert me["plan"]["effective"] == "pro"
     assert me["plan"]["expires_at"] is None
-    assert client.post(
-        "/api/assistant/text", json={"text": "taxi 100"}, headers=bearer(abebe)
-    ).status_code == 200
+    assert (
+        client.post(
+            "/api/assistant/text", json={"text": "taxi 100"}, headers=bearer(abebe)
+        ).status_code
+        == 200
+    )
 
 
 def test_bad_plan_changes_are_explained(client: TestClient):
@@ -539,13 +536,50 @@ def payment_form(client: TestClient, **fields) -> dict:
     return form
 
 
-def set_price(client: TestClient, plan: str, price: str):
+#: What each built-in card's form holds before anything is changed.
+CARD_DEFAULTS = {
+    "trial": {
+        "name": "Trial",
+        "trial_days": "14",
+        "typed_requests": "1",
+        "receipts": "",
+        "voice": "",
+    },
+    "basic": {
+        "name": "Basic",
+        "price": "",
+        "typed_requests": "",
+        "receipts": "0",
+        "voice": "0",
+        "visible": "1",
+    },
+    "pro": {
+        "name": "Pro",
+        "price": "",
+        "typed_requests": "1",
+        "receipts": "",
+        "voice": "",
+        "visible": "1",
+    },
+}
+
+
+def save_card(client: TestClient, code: str, **fields):
+    """Save a plan card as the form would: its current values, with ``fields`` changed. A form
+    leaves an unticked box out, so a field set to "" is dropped."""
     plans = f"{PORTAL}/plans"
-    return client.post(
-        f"{plans}/{plan}",
-        data={"price": price, "csrf": csrf(client, f"{plans}?edit={plan}")},
-        follow_redirects=False,
-    )
+    data = {"voice_seconds": "60"} | CARD_DEFAULTS.get(code, {}) | fields
+    data = {
+        key: value
+        for key, value in data.items()
+        if value != "" or key in {"price", "receipts", "voice", "trial_days", "name"}
+    }
+    data["csrf"] = csrf(client, f"{plans}?edit={code}")
+    return client.post(f"{plans}/{code}", data=data, follow_redirects=False)
+
+
+def set_price(client: TestClient, plan: str, price: str):
+    return save_card(client, plan, price=price)
 
 
 def test_payment_details_start_empty_and_need_sign_in(client: TestClient):
@@ -583,8 +617,26 @@ def test_an_admin_sets_payment_details_and_the_app_shows_them(client: TestClient
             {"bank": "telebirr", "holder": "Kise PLC", "number": "0911234567"},
         ],
         "plans": [
-            {"plan": "basic", "price": "100 birr a month", "ai_enabled": False},
-            {"plan": "pro", "price": "300 birr a month", "ai_enabled": True},
+            {
+                "plan": "basic",
+                "name": "Basic",
+                "price": "100 birr a month",
+                "ai_enabled": False,
+                "typed_requests": False,
+                "receipts_per_month": 0,
+                "voice_per_month": 0,
+                "current": False,
+            },
+            {
+                "plan": "pro",
+                "name": "Pro",
+                "price": "300 birr a month",
+                "ai_enabled": True,
+                "typed_requests": True,
+                "receipts_per_month": None,
+                "voice_per_month": None,
+                "current": False,
+            },
         ],
         "telegram": "kise_support",
         "telegram_url": "https://t.me/kise_support",
@@ -666,7 +718,8 @@ def test_plan_cards_show_each_plan_and_open_one_for_editing(client: TestClient):
         assert f'data-testid="plan-card-{plan}"' in page
         assert f'data-testid="edit-{plan}"' in page
     assert "No price set" in page
-    assert "<form" not in page.split('data-testid="plan-card-trial"')[1], "read-only until Edit"
+    trial_card = page.split('data-testid="plan-card-trial"')[1].split("</section>")[0]
+    assert "<form" not in trial_card, "read-only until Edit"
 
     editing = client.get(f"{PORTAL}/plans?edit=pro").text
     pro = editing.split('data-testid="plan-card-pro"')[1]
@@ -683,7 +736,7 @@ def test_saving_a_price_changes_only_that_plan(client: TestClient):
     set_price(client, "pro", "350 birr a month")
 
     page = client.get(f"{PORTAL}/plans?saved=pro").text
-    assert "Pro saved" in page
+    assert "Saved." in page
     assert "350 birr a month" in page and "100 birr a month" in page
 
 
@@ -700,11 +753,14 @@ def test_a_bad_plan_edit_stays_open_with_the_error(client: TestClient):
     signed_in_admin(client)
     response = set_price(client, "pro", "x" * 121)
     assert response.status_code == 422
-    assert "Pro price is too long" in response.text
+    assert "Keep the price under 120 characters" in response.text
     assert 'name="price"' in response.text.split('data-testid="plan-card-pro"')[1]
-    assert client.post(
-        f"{PORTAL}/plans/gold", data={"csrf": csrf(client, f"{PORTAL}/plans")}
-    ).status_code == 404
+    assert (
+        client.post(
+            f"{PORTAL}/plans/gold", data={"csrf": csrf(client, f"{PORTAL}/plans")}
+        ).status_code
+        == 404
+    )
 
 
 # -- monthly allowances of receipt scans and voice notes ------------------------------
@@ -721,12 +777,7 @@ def send(client: TestClient, header: dict, route) -> int:
 
 
 def set_allowance(client: TestClient, plan: str, receipts: str, voice: str, **extra):
-    plans = f"{PORTAL}/plans"
-    data = {"receipts": receipts, "voice": voice, "csrf": csrf(client, f"{plans}?edit={plan}")}
-    if plan == "trial":
-        data.setdefault("trial_days", "14")
-    data.update(extra)
-    return client.post(f"{plans}/{plan}", data=data, follow_redirects=False)
+    return save_card(client, plan, receipts=receipts, voice=voice, **extra)
 
 
 def usage(client: TestClient, header: dict) -> dict:
@@ -841,3 +892,203 @@ def test_a_bad_allowance_is_explained_and_changes_nothing(
     assert f'value="{receipts}"' in response.text.split('data-testid="plan-card-pro"')[1]
     after = client.get(f"{PORTAL}/plans").text
     assert "300 birr a month" in after and "999 birr" not in after, "nothing was saved"
+
+
+# -- how long a voice note may be ---------------------------------------------------------
+
+
+def m4a(seconds: float) -> bytes:
+    """A minimal MP4 with just enough boxes for its length to be read (moov > mvhd)."""
+    import struct
+
+    timescale = 1000
+    mvhd = struct.pack(">B3xII", 0, 0, 0) + struct.pack(">II", timescale, int(seconds * timescale))
+    mvhd_box = struct.pack(">I4s", 8 + len(mvhd), b"mvhd") + mvhd
+    moov = struct.pack(">I4s", 8 + len(mvhd_box), b"moov") + mvhd_box
+    ftyp = struct.pack(">I4s", 16, b"ftyp") + b"M4A \x00\x00\x00\x00"
+    return ftyp + moov + b"\x00" * 64
+
+
+def voice_note(
+    client: TestClient, header: dict, seconds: float, path: str = "/api/assistant/voice"
+):
+    return client.post(path, headers=header, files={"file": ("v.m4a", m4a(seconds), "audio/mp4")})
+
+
+def test_a_voice_note_longer_than_the_plan_allows_is_refused_before_the_model(
+    client: TestClient, model: CountingModel
+):
+    signed_in_admin(client)
+    save_card(client, "trial", voice_seconds="20")
+    header = bearer(register(client))
+    assert client.get("/api/assistant/status", headers=header).json()["max_voice_seconds"] == 20
+
+    assert voice_note(client, header, 21).status_code == 200, "a second or two over is fine"
+    calls = model.calls
+    for path in ("/api/assistant/voice", "/api/assistant/ask/voice"):
+        response = voice_note(client, header, 45, path)
+        assert response.status_code == 422
+        assert response.json()["code"] == "voice_note_too_long"
+        assert response.json()["detail"]["max_seconds"] == 20
+    assert model.calls == calls
+    assert usage(client, header)["voice"]["used"] == 1, "a refused note is not counted"
+
+
+def test_a_recording_of_unknown_length_is_held_to_a_size_limit(client: TestClient):
+    header = bearer(register(client))  # 60 seconds by default
+    ogg = lambda size: {"file": ("v.ogg", b"O" * size, "audio/ogg")}  # noqa: E731
+    small = client.post("/api/assistant/voice", headers=header, files=ogg(200_000))
+    assert small.status_code == 200
+    too_big = client.post("/api/assistant/voice", headers=header, files=ogg(3_000_000))
+    assert too_big.json()["code"] == "voice_note_too_long"
+
+
+def test_the_plan_card_shows_and_checks_the_voice_length(client: TestClient):
+    signed_in_admin(client)
+    page = client.get(f"{PORTAL}/plans").text
+    assert "60 seconds" in page.split('data-testid="voice-seconds-pro"')[1][:30]
+    response = save_card(client, "pro", voice_seconds="600")
+    assert response.status_code == 422
+    assert "from 5 to 300 seconds" in response.text
+
+
+# -- admins add, hide and remove plans --------------------------------------------------
+
+
+def add_plan(client: TestClient, **fields):
+    plans = f"{PORTAL}/plans"
+    data = {
+        "name": "Family",
+        "price": "500 birr a month",
+        "typed_requests": "1",
+        "receipts": "100",
+        "voice": "40",
+        "voice_seconds": "90",
+        "visible": "1",
+    } | fields
+    data = {key: value for key, value in data.items() if value is not None}
+    data["csrf"] = csrf(client, f"{plans}?edit=new")
+    return client.post(plans, data=data, follow_redirects=False)
+
+
+def put_on_plan(client: TestClient, owner_id: str, plan: str, days: str = ""):
+    path = f"{PORTAL}/accounts/{owner_id}"
+    return client.post(
+        f"{path}/plan",
+        data={"plan": plan, "days": days, "csrf": csrf(client, path)},
+        follow_redirects=False,
+    )
+
+
+def test_an_added_plan_gets_a_card_is_offered_in_the_app_and_can_be_given(
+    client: TestClient,
+):
+    abebe = register(client)
+    signed_in_admin(client)
+    assert 'data-testid="plan-card-new"' in client.get(f"{PORTAL}/plans?edit=new").text
+
+    added = add_plan(client)
+    assert added.status_code == 303
+    assert added.headers["location"] == f"{PORTAL}/plans?saved=family"
+    card = client.get(f"{PORTAL}/plans").text.split('data-testid="plan-card-family"')[1]
+    assert "500 birr a month" in card and "100 scans a month" in card
+    assert 'data-testid="remove-family"' in card
+
+    offered = client.get("/api/plans/payment", headers=bearer(abebe)).json()["plans"]
+    assert [p["plan"] for p in offered] == ["basic", "pro", "family"]
+    family = offered[2]
+    assert family["name"] == "Family" and family["receipts_per_month"] == 100
+
+    account = client.get(f"{PORTAL}/accounts/{abebe['owner']['id']}").text
+    assert 'value="family"' in account
+    assert put_on_plan(client, abebe["owner"]["id"], "family", "30").status_code == 303
+    me = client.get("/api/auth/me", headers=bearer(abebe)).json()["plan"]
+    assert me["effective"] == "family" and me["name"] == "Family"
+    assert me["receipts_per_month"] == 100 and me["max_voice_seconds"] == 90
+    status = client.get("/api/assistant/status", headers=bearer(abebe)).json()
+    assert status["allowed"] is True and status["max_voice_seconds"] == 90
+
+
+def test_a_plan_without_typed_requests_still_gets_its_scans(client: TestClient):
+    abebe = register(client)
+    signed_in_admin(client)
+    add_plan(client, name="Scanner", typed_requests=None, receipts="5", voice="0")
+    put_on_plan(client, abebe["owner"]["id"], "scanner")
+    header = bearer(abebe)
+    assert send(client, header, RECEIPT) == 200
+    assert send(client, header, TEXT) == 403
+    assert send(client, header, VOICE) == 403
+
+
+def test_a_plan_name_is_needed_and_must_be_new(client: TestClient):
+    signed_in_admin(client)
+    blank = add_plan(client, name="  ")
+    assert blank.status_code == 422 and "A plan needs a name" in blank.text
+    assert 'data-testid="plan-card-new"' in blank.text, "the form stays open"
+    clash = add_plan(client, name="PRO")
+    assert clash.status_code == 422 and "already a plan with that name" in clash.text
+    assert 'value="PRO"' in clash.text
+
+
+def test_a_hidden_plan_is_not_offered_but_still_works_for_its_accounts(client: TestClient):
+    abebe = register(client)
+    signed_in_admin(client)
+    add_plan(client)
+    put_on_plan(client, abebe["owner"]["id"], "family")
+    saved = save_card(
+        client,
+        "family",
+        name="Family",
+        price="500 birr a month",
+        typed_requests="1",
+        receipts="100",
+        voice="40",
+        visible="",
+    )
+    assert saved.status_code == 303
+    page = client.get(f"{PORTAL}/plans").text
+    assert 'data-testid="hidden-family"' in page
+    offered = client.get("/api/plans/payment", headers=bearer(abebe)).json()["plans"]
+    assert "family" not in [p["plan"] for p in offered]
+    assert client.get("/api/auth/me", headers=bearer(abebe)).json()["plan"]["name"] == "Family"
+
+
+def test_a_plan_is_removed_only_when_nobody_is_on_it_and_never_if_built_in(
+    client: TestClient,
+):
+    abebe = register(client)
+    signed_in_admin(client)
+    add_plan(client)
+    put_on_plan(client, abebe["owner"]["id"], "family")
+
+    def remove(code: str):
+        return client.post(
+            f"{PORTAL}/plans/{code}/remove",
+            data={"csrf": csrf(client, f"{PORTAL}/plans")},
+            follow_redirects=False,
+        )
+
+    in_use = remove("family")
+    assert in_use.status_code == 422 and "1 account is on Family" in in_use.text
+    assert "In use: hide it instead" in client.get(f"{PORTAL}/plans").text
+    for built_in in ("trial", "basic"):
+        response = remove(built_in)
+        assert response.status_code == 422 and "is built in" in response.text
+
+    put_on_plan(client, abebe["owner"]["id"], "basic")
+    removed = remove("family")
+    assert removed.status_code == 303
+    assert "Family removed." in client.get(removed.headers["location"]).text
+    assert 'data-testid="plan-card-family"' not in client.get(f"{PORTAL}/plans").text
+    assert remove("family").status_code == 404
+
+
+def test_an_account_on_a_plan_that_no_longer_exists_reads_as_basic(client, container):
+    abebe = register(client)
+    uow = container.open_unit_of_work()
+    owner = uow.owners.get(OwnerId.parse(abebe["owner"]["id"]))
+    owner.change_subscription(Subscription(PlanCode("gone")))
+    uow.commit()
+    uow.session.close()
+    me = client.get("/api/auth/me", headers=bearer(abebe)).json()["plan"]
+    assert me["name"] == "Basic" and me["ai_enabled"] is False

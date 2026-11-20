@@ -13,25 +13,31 @@ them to Pro. A payment provider would later issue the same ``ChangePlanCommand``
 from __future__ import annotations
 
 from kise.identity.application.commands import (
+    AddPlanCommand,
     ChangePlanCommand,
     ListAccountsQuery,
+    RemovePlanCommand,
     SetPaymentInstructionsCommand,
     UpdatePlanCommand,
 )
+from kise.identity.application.services.plans import PlanCatalogue
 from kise.identity.application.views import AccountPage, AccountView, PlanCard, PlanOverview
+from kise.identity.domain.errors import PlanAlreadyExists
 from kise.identity.domain.models import (
-    AI_PLANS,
     Owner,
     PaymentAccount,
     PaymentInstructions,
-    Plan,
     PlanAllowance,
+    PlanCode,
+    PlanDefinition,
     Subscription,
+    plan_code_from_name,
 )
 from kise.identity.infrastructure.persistence.repository import (
     SqlAlchemyLinkedIdentityRepository,
     SqlAlchemyOwnerRepository,
     SqlAlchemyPaymentSettingsRepository,
+    SqlAlchemyPlanRepository,
     SqlAlchemyPlanSettingsRepository,
 )
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
@@ -48,25 +54,38 @@ class AccountAdministrationService:
         linked_identities: SqlAlchemyLinkedIdentityRepository,
         plan_settings: SqlAlchemyPlanSettingsRepository,
         payment_settings: SqlAlchemyPaymentSettingsRepository,
+        plans: SqlAlchemyPlanRepository,
         clock: Clock,
         uow: UnitOfWork,
     ) -> None:
-        self._payment_settings = payment_settings
         self._owners = owners
         self._linked = linked_identities
         self._plan_settings = plan_settings
+        self._payment_settings = payment_settings
+        self._plans = plans
+        self._catalogue = PlanCatalogue(plans)
         self._clock = clock
         self._uow = uow
 
     def _view(self, owner: Owner) -> AccountView:
-        return AccountView.of(owner, self._linked.list_for_owner(owner.id), self._clock.now())
+        now = self._clock.now()
+        return AccountView.of(
+            owner,
+            self._linked.list_for_owner(owner.id),
+            now,
+            self._catalogue.in_force(owner.subscription, now),
+        )
 
     # -- queries ------------------------------------------------------------
     def overview(self) -> PlanOverview:
-        by_plan = {plan.value: 0 for plan in Plan}
-        by_plan.update(self._owners.count_by_plan())
+        counts = self._owners.count_by_plan()
         return PlanOverview(
-            total=self._owners.count(), by_plan=by_plan, policy=self._plan_settings.get()
+            total=self._owners.count(),
+            by_plan=tuple(
+                (str(plan.code), plan.name, counts.get(str(plan.code), 0))
+                for plan in self._plans.list()
+            ),
+            policy=self._plan_settings.get(),
         )
 
     def accounts(self, query: ListAccountsQuery) -> AccountPage:
@@ -83,11 +102,13 @@ class AccountAdministrationService:
     def account(self, owner_id: OwnerId) -> AccountView:
         return self._view(self._owners.get(owner_id))
 
+    def plans(self) -> list[PlanDefinition]:
+        return self._plans.list()
+
     # -- commands -------------------------------------------------------------
     def change_plan(self, command: ChangePlanCommand) -> AccountView:
-        subscription = Subscription.grant(
-            command.plan, now=self._clock.now(), days=command.days
-        )
+        plan = self._plans.get_by_code(PlanCode.parse(command.plan))
+        subscription = Subscription.grant(plan.code, now=self._clock.now(), days=command.days)
         owner = self._owners.get(command.owner_id)
         owner.change_subscription(subscription)
         self._uow.commit()
@@ -115,36 +136,64 @@ class AccountAdministrationService:
 
     # -- plans --------------------------------------------------------------------
     def plan_cards(self) -> tuple[PlanCard, ...]:
-        """Trial, Basic and Pro, each with what an admin can change about it."""
+        """Every plan, in order, with what an admin can change about it."""
         counts = self._owners.count_by_plan()
-        policy = self._plan_settings.get()
-        prices = self._payment_settings.get()
+        trial_days = self._plan_settings.get().trial_days
         return tuple(
-            PlanCard(
-                plan=plan,
-                price=prices.price_of(plan),
-                trial_days=policy.trial_days if plan is Plan.TRIAL else None,
-                ai_enabled=plan in AI_PLANS,
-                accounts=counts.get(plan.value, 0),
-                receipts=policy.allowance_for(plan).receipts,
-                voice=policy.allowance_for(plan).voice,
-            )
-            for plan in Plan
+            PlanCard.of(plan, accounts=counts.get(str(plan.code), 0), trial_days=trial_days)
+            for plan in self._plans.list()
         )
 
-    def update_plan(self, command: UpdatePlanCommand) -> PlanCard:
-        """A plan card's edit: its price or trial length, and its monthly allowance. Every value
-        is checked before anything is saved, so a bad one changes nothing."""
-        plan = Plan.parse(command.plan)
-        policy = self._plan_settings.get().with_allowance(
-            plan, PlanAllowance(receipts=command.receipts, voice=command.voice)
+    def add_plan(self, command: AddPlanCommand) -> PlanCard:
+        code = plan_code_from_name(command.name)
+        if self._plans.find_by_code(code) is not None:
+            raise PlanAlreadyExists(str(code))
+        plan = PlanDefinition.create(
+            code=code,
+            name=command.name,
+            price=command.price,
+            typed_requests=command.typed_requests,
+            allowance=PlanAllowance(
+                receipts=command.receipts,
+                voice=command.voice,
+                voice_seconds=command.voice_seconds,
+            ),
+            position=self._plans.next_position(),
+            now=self._clock.now(),
+            visible=command.visible,
         )
-        if plan is Plan.TRIAL and command.trial_days is not None:
-            policy = policy.with_trial_days(command.trial_days)
-        instructions = self._payment_settings.get()
-        if plan is not Plan.TRIAL and command.price is not None:
-            instructions = instructions.with_price(plan, command.price)
-        self._plan_settings.save(policy)
-        self._payment_settings.save(instructions)
+        self._plans.add(plan)
         self._uow.commit()
-        return next(card for card in self.plan_cards() if card.plan is plan)
+        return PlanCard.of(plan, accounts=0, trial_days=self._plan_settings.get().trial_days)
+
+    def update_plan(self, command: UpdatePlanCommand) -> PlanCard:
+        """A plan card's edit. Every value is checked before anything is saved, so a bad one
+        changes nothing."""
+        plan = self._plans.get_by_code(PlanCode.parse(command.code))
+        policy = self._plan_settings.get()
+        if plan.is_trial and command.trial_days is not None:
+            policy = policy.with_trial_days(command.trial_days)
+        plan.change(
+            name=command.name,
+            price=command.price,
+            typed_requests=command.typed_requests,
+            allowance=PlanAllowance(
+                receipts=command.receipts,
+                voice=command.voice,
+                voice_seconds=command.voice_seconds,
+            ),
+            visible=command.visible,
+        )
+        self._plan_settings.save(policy)
+        self._uow.commit()
+        counts = self._owners.count_by_plan()
+        return PlanCard.of(
+            plan, accounts=counts.get(str(plan.code), 0), trial_days=policy.trial_days
+        )
+
+    def remove_plan(self, command: RemovePlanCommand) -> None:
+        plan = self._plans.get_by_code(PlanCode.parse(command.code))
+        plan.ensure_removable(self._owners.count_by_plan().get(str(plan.code), 0))
+        self._plans.remove(plan)
+        self._uow.commit()
+

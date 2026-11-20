@@ -31,19 +31,27 @@ A platform-provided `DATABASE_URL` (e.g. from Heroku) is therefore used as it is
 
 ### Plans and the admin portal
 
-Every account is on a plan: **Trial** (everything, for a limited time), **Basic** (everything except
-the assistant) or **Pro** (everything; optionally until a date). New accounts start on a trial whose
-length an admin sets; a trial or dated Pro plan past its end simply counts as Basic. The assistant
-routes answer `403 upgrade_required` on Basic, before any model call.
+Every account is on a plan. Plans are records an admin manages under **Plans** in the portal: each
+has a name, a price (free text), whether it includes typed requests to the assistant, how many
+receipt scans and voice notes it allows a month (empty for no limit, 0 for none), its longest voice
+note, and whether the app offers it. Admins add plans, hide them from the app, and remove ones
+nobody is on. Two are built in and can be changed but not removed: **Trial**, where new accounts
+start for a length an admin sets, and **Basic**, which any plan becomes when it ends. **Pro** is
+created at first but is an ordinary plan.
 
-The admin portal at **`/kise-office`** (server-rendered, Tailwind) shows accounts by plan, lets an admin
-search accounts, change a plan (Basic / a trial of N days / Pro for N days or open-ended) and set
-the trial length for new accounts.
+The assistant checks the plan in force before any model call: `403 upgrade_required` when the plan
+has none of that kind, `403 allowance_used_up` when this month's scans or voice notes are used
+(counts start again on the 1st, UTC), `422 voice_note_too_long` past the plan's length. Only
+successful requests count. `GET /api/assistant/status` reports usage, `resets_on` and
+`max_voice_seconds`; the app stops recording there and sends what was said.
+
+The admin portal at **`/kise-office`** (server-rendered, Tailwind) shows accounts by plan, lets an
+admin search accounts, put one on any plan (for N days or open-ended), and edit the plans.
 
 Payment is manual for now. Under **Payments** an admin enters the accounts to pay into (bank or
-telebirr), the price, and a Telegram username, phone and email. The app's upgrade sheet shows them
-(`GET /api/plans/payment`): the person pays, sends the screenshot on Telegram quoting their email,
-and an admin moves them to Pro under **Accounts**.
+telebirr), and a Telegram username, phone and email. The app's upgrade sheet shows them with the
+plans on offer (`GET /api/plans/payment`): the person pays, sends the screenshot on Telegram quoting
+their email, and an admin moves them to the plan under **Accounts**.
 
 Admins are their own accounts, not app accounts. Create the first one from the command line; it
 asks for the email and password (at least 8 characters):

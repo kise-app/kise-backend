@@ -34,6 +34,8 @@ class Allowance:
 
     receipts: int | None = None
     voice: int | None = None
+    #: The longest voice note, in seconds.
+    voice_seconds: int = 60
 
     def limit(self, kind: UsageKind) -> int | None:
         return self.receipts if kind is UsageKind.RECEIPT else self.voice
@@ -58,3 +60,18 @@ class UsageSummary:
     @property
     def remaining(self) -> int | None:
         return None if self.limit is None else max(0, self.limit - self.used)
+
+
+#: A little over the limit is allowed: the app stops at the limit, and containers round up.
+VOICE_LENGTH_GRACE_SECONDS = 2
+#: When a recording's length cannot be read, its size stands in: generous for speech (the app's
+#: 16 kHz mono AAC is about 16 KB a second), so only a far longer recording is refused.
+VOICE_BYTES_PER_SECOND = 32 * 1024
+VOICE_BYTES_OVERHEAD = 64 * 1024
+
+
+def voice_within(seconds_allowed: int, *, duration: float | None, size: int) -> bool:
+    """Whether a voice note fits the plan's length limit."""
+    if duration is not None:
+        return duration <= seconds_allowed + VOICE_LENGTH_GRACE_SECONDS
+    return size <= seconds_allowed * VOICE_BYTES_PER_SECOND + VOICE_BYTES_OVERHEAD

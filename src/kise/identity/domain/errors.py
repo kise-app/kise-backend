@@ -93,3 +93,14 @@ class AdministratorAlreadyExists(Conflict):
 
     def __init__(self, email: str) -> None:
         super().__init__("There is already an admin with that email", email=email)
+
+
+class PlanNotFound(NotFound):
+    code = "plan_not_found"
+
+
+class PlanAlreadyExists(Conflict):
+    code = "plan_already_exists"
+
+    def __init__(self, code: str) -> None:
+        super().__init__("There is already a plan with that name", plan=code)

@@ -12,5 +12,11 @@ the model, the mechanism does not.
 from kise.identity.domain.mappers.administrator_mapping import AdministratorMapping
 from kise.identity.domain.mappers.linked_identity_mapping import LinkedIdentityMapping
 from kise.identity.domain.mappers.owner_mapping import OwnerMapping
+from kise.identity.domain.mappers.plan_definition_mapping import PlanDefinitionMapping
 
-__all__ = ["AdministratorMapping", "LinkedIdentityMapping", "OwnerMapping"]
+__all__ = [
+    "AdministratorMapping",
+    "LinkedIdentityMapping",
+    "OwnerMapping",
+    "PlanDefinitionMapping",
+]

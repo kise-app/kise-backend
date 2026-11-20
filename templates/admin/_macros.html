@@ -1,11 +1,13 @@
 {#- Shared bits: plan badges and notices. -#}
-{% macro plan_badge(plan) -%}
+{#- A plan's badge: its name, coloured by what it is. Built-in colours for Trial, Basic and Pro; any
+    plan an admin adds gets the neutral-green one. -#}
+{% macro plan_badge(code, name=none) -%}
 {%- set styles = {
   "pro": "bg-forest text-white",
   "trial": "bg-gold-50 text-gold-deep",
   "basic": "bg-line-soft text-ink-muted",
 } -%}
-<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide {{ styles.get(plan, styles['basic']) }}">{{ plan }}</span>
+<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide {{ styles.get(code, 'bg-forest-50 text-forest') }}">{{ name or code }}</span>
 {%- endmacro %}
 
 {% macro notice(text, kind="ok") -%}

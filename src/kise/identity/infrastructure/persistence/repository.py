@@ -1,12 +1,12 @@
-"""SQLAlchemy repositories of the Identity context: Owners, the accounts linked to them, plan
-settings, and the admin portal's administrators."""
+"""SQLAlchemy repositories of the Identity context: Owners, the accounts linked to them, plans and
+their settings, payment details, and the admin portal's administrators."""
 
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from kise.identity.domain.errors import AdministratorNotFound, OwnerNotFound
+from kise.identity.domain.errors import AdministratorNotFound, OwnerNotFound, PlanNotFound
 from kise.identity.domain.models import (
     Administrator,
     EmailAddress,
@@ -14,8 +14,8 @@ from kise.identity.domain.models import (
     Owner,
     PaymentAccount,
     PaymentInstructions,
-    Plan,
-    PlanAllowance,
+    PlanCode,
+    PlanDefinition,
     PlanPolicy,
     SocialProvider,
 )
@@ -23,15 +23,17 @@ from kise.identity.infrastructure.persistence.mappers import (
     AdministratorMapper,
     LinkedIdentityMapper,
     OwnerMapper,
+    PlanDefinitionMapper,
 )
 from kise.identity.infrastructure.persistence.models import (
     AdministratorModel,
     LinkedIdentityModel,
     OwnerModel,
     PaymentSettingsModel,
+    PlanModel,
     PlanSettingsModel,
 )
-from kise.shared_kernel.domain.identifiers import AdministratorId, OwnerId
+from kise.shared_kernel.domain.identifiers import AdministratorId, OwnerId, PlanId
 from kise.shared_kernel.infrastructure.repository import TrackingRepository
 
 
@@ -140,29 +142,14 @@ class SqlAlchemyPlanSettingsRepository:
 
     def get(self) -> PlanPolicy:
         row = self._session.get(PlanSettingsModel, 1)
-        if row is None:
-            return PlanPolicy()
-        stored = row.allowances or {}
-        return PlanPolicy(
-            trial_days=row.trial_days,
-            allowances={
-                plan: PlanAllowance(receipts=limits.get("receipts"), voice=limits.get("voice"))
-                for plan, limits in stored.items()
-                if plan in {p.value for p in Plan}
-            },
-        )
+        return PlanPolicy(trial_days=row.trial_days) if row is not None else PlanPolicy()
 
     def save(self, policy: PlanPolicy) -> None:
         row = self._session.get(PlanSettingsModel, 1)
         if row is None:
-            row = PlanSettingsModel(id=1)
-            self._session.add(row)
-        row.trial_days = policy.trial_days
-        # A new dict, so SQLAlchemy sees the JSON column change.
-        row.allowances = {
-            plan.value: {"receipts": allowance.receipts, "voice": allowance.voice}
-            for plan, allowance in policy.allowances.items()
-        }
+            self._session.add(PlanSettingsModel(id=1, trial_days=policy.trial_days))
+        else:
+            row.trial_days = policy.trial_days
 
 
 class SqlAlchemyAdministratorRepository(TrackingRepository[Administrator]):
@@ -223,8 +210,6 @@ class SqlAlchemyPaymentSettingsRepository:
                 PaymentAccount(bank=a["bank"], holder=a["holder"], number=a["number"])
                 for a in (row.accounts or [])
             ),
-            basic_price=row.basic_price or "",
-            pro_price=row.pro_price or "",
             telegram=row.telegram or "",
             phone=row.phone or "",
             email=row.email or "",
@@ -240,9 +225,55 @@ class SqlAlchemyPaymentSettingsRepository:
             {"bank": a.bank, "holder": a.holder, "number": a.number}
             for a in instructions.accounts
         ]
-        row.basic_price = instructions.basic_price
-        row.pro_price = instructions.pro_price
         row.telegram = instructions.telegram
         row.phone = instructions.phone
         row.email = instructions.email
         row.note = instructions.note
+
+
+class SqlAlchemyPlanRepository(TrackingRepository[PlanDefinition]):
+    """The plans Kise offers, in the order the portal and the app show them."""
+
+    mapper = PlanDefinitionMapper
+
+    def __init__(self, session: Session) -> None:
+        super().__init__(session)
+
+    @classmethod
+    def model_type(cls) -> type[PlanModel]:
+        return PlanModel
+
+    def add(self, plan: PlanDefinition) -> None:
+        self._insert(plan)
+
+    def remove(self, plan: PlanDefinition) -> None:
+        self._delete(plan)
+
+    def get(self, plan_id: PlanId) -> PlanDefinition:
+        cached = self._cached(plan_id)
+        if cached is not None:
+            return cached
+        model = self._session.get(PlanModel, plan_id.value)
+        if model is None:
+            raise PlanNotFound("No such plan", plan_id=str(plan_id))
+        return self._rehydrate(model)
+
+    def find_by_code(self, code: PlanCode) -> PlanDefinition | None:
+        model = self._session.scalars(
+            select(PlanModel).where(PlanModel.code == str(code))
+        ).one_or_none()
+        return self._rehydrate(model) if model is not None else None
+
+    def get_by_code(self, code: PlanCode) -> PlanDefinition:
+        found = self.find_by_code(code)
+        if found is None:
+            raise PlanNotFound("No such plan", plan=str(code))
+        return found
+
+    def list(self) -> list[PlanDefinition]:
+        statement = select(PlanModel).order_by(PlanModel.position, PlanModel.created_at)
+        return self._rehydrate_all(self._session.scalars(statement).all())
+
+    def next_position(self) -> int:
+        highest = self._session.scalar(select(func.max(PlanModel.position)))
+        return (highest or 0) + 10

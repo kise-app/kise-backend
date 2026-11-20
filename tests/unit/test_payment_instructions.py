@@ -67,17 +67,3 @@ def test_ready_needs_an_account_and_a_way_to_send_the_screenshot():
 def test_at_most_five_accounts():
     with pytest.raises(ValidationError):
         PaymentInstructions(accounts=(CBE,) * 6)
-
-
-def test_each_paid_plan_has_its_own_price_and_the_trial_has_none():
-    prices = PaymentInstructions(basic_price=" 100  birr a month ", pro_price="300 birr a month")
-    assert prices.price_of("basic") == "100 birr a month"
-    assert prices.price_of("pro") == "300 birr a month"
-    assert prices.price_of("trial") == ""
-    assert PaymentInstructions().price_of("pro") == ""
-
-
-def test_a_price_is_short_text():
-    with pytest.raises(ValidationError) as caught:
-        PaymentInstructions(pro_price="x" * 121)
-    assert caught.value.detail["field"] == "pro_price"

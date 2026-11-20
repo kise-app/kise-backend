@@ -1,4 +1,4 @@
-"""Owner <-> OwnerModel, LinkedIdentity <-> LinkedIdentityModel, Administrator <-> its row."""
+"""Owner, LinkedIdentity, Administrator and PlanDefinition <-> their rows."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from kise.identity.domain.models import (
     LinkedIdentity,
     Owner,
     PasswordHash,
+    PlanAllowance,
+    PlanDefinition,
     Preferences,
     Subscription,
 )
@@ -17,9 +19,10 @@ from kise.identity.infrastructure.persistence.models import (
     AdministratorModel,
     LinkedIdentityModel,
     OwnerModel,
+    PlanModel,
 )
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind, Language
-from kise.shared_kernel.domain.identifiers import AdministratorId, LinkedIdentityId, OwnerId
+from kise.shared_kernel.domain.identifiers import AdministratorId, LinkedIdentityId, OwnerId, PlanId
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -43,7 +46,7 @@ class OwnerMapper:
             preferred_language=owner.preferences.language.value,
             currency=owner.preferences.currency,
             registered_at=owner.registered_at,
-            plan=owner.subscription.plan.value,
+            plan=str(owner.subscription.plan),
             plan_expires_at=owner.subscription.expires_at,
         )
 
@@ -66,7 +69,7 @@ class OwnerMapper:
 
     @staticmethod
     def update_model(entity: OwnerModel, owner: Owner) -> None:
-        entity.plan = owner.subscription.plan.value
+        entity.plan = str(owner.subscription.plan)
         entity.plan_expires_at = owner.subscription.expires_at
         entity.email = str(owner.email)
         entity.password_hash = owner.password_hash.value
@@ -134,3 +137,38 @@ class AdministratorMapper:
         entity.password_hash = admin.password_hash.value
         entity.password_changed_at = admin.password_changed_at
         entity.credentials_version = admin.credentials_version
+
+
+class PlanDefinitionMapper:
+    @staticmethod
+    def to_model(plan: PlanDefinition) -> PlanModel:
+        model = PlanModel(id=plan.id.value, code=str(plan.code), created_at=plan.created_at)
+        PlanDefinitionMapper.update_model(model, plan)
+        return model
+
+    @staticmethod
+    def to_domain(entity: PlanModel) -> PlanDefinition:
+        return PlanDefinition(
+            PlanId(entity.id),
+            code=entity.code,
+            name=entity.name,
+            price=entity.price or "",
+            typed_requests=entity.typed_requests,
+            allowance=PlanAllowance(
+                receipts=entity.receipts, voice=entity.voice, voice_seconds=entity.voice_seconds
+            ),
+            position=entity.position,
+            visible=entity.visible,
+            created_at=_aware(entity.created_at),
+        )
+
+    @staticmethod
+    def update_model(entity: PlanModel, plan: PlanDefinition) -> None:
+        entity.name = plan.name
+        entity.price = plan.price
+        entity.typed_requests = plan.typed_requests
+        entity.receipts = plan.allowance.receipts
+        entity.voice = plan.allowance.voice
+        entity.voice_seconds = plan.allowance.voice_seconds
+        entity.position = plan.position
+        entity.visible = plan.visible

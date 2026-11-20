@@ -7,6 +7,7 @@
                      never imports another one.
 ``RateLimiter``      an hourly allowance per Owner, because every call costs money.
 ``UsageRepository``  receipt scans and voice notes used per month, against the plan's allowance.
+``AudioInspector``   how long a voice note is, from the file, so the plan's length limit holds.
 """
 
 from __future__ import annotations
@@ -80,3 +81,11 @@ class UsageRepository(ABC):
     @abstractmethod
     def add_one(self, owner_id: OwnerId, kind: UsageKind, period: str) -> None:
         """Count one more of ``kind`` in ``period``."""
+
+
+class AudioInspector(ABC):
+    """Reads how long a recording is without sending it anywhere."""
+
+    @abstractmethod
+    def duration_seconds(self, data: bytes, mime_type: str) -> float | None:
+        """The length in seconds, or None when this format cannot be read."""

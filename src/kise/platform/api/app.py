@@ -51,14 +51,17 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # Units are global and seedable; ensure the default set exists on boot. Idempotent, so a
-        # no-op once seeded. Best-effort: a seeding hiccup must not stop the app from starting.
-        try:
-            container.seed_units()
-        except Exception:  # noqa: BLE001 - seeding is best-effort at startup
-            import logging
+        # Units and plans are global and seedable; ensure the defaults exist on boot. Idempotent,
+        # so a no-op once seeded. Best-effort: a seeding hiccup must not stop the app starting, and
+        # one failing does not skip the other.
+        import logging
 
-            logging.getLogger("kise.platform").warning("Unit seeding skipped", exc_info=True)
+        for name, seed in (("Unit", container.seed_units), ("Plan", container.seed_plans)):
+            try:
+                seed()
+            except Exception:  # noqa: BLE001 - seeding is best-effort at startup
+                logger = logging.getLogger("kise.platform")
+                logger.warning("%s seeding skipped", name, exc_info=True)
         yield
 
     app = FastAPI(

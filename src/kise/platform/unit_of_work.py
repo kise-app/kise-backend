@@ -31,6 +31,7 @@ from kise.identity.infrastructure.persistence.repository import (
     SqlAlchemyLinkedIdentityRepository,
     SqlAlchemyOwnerRepository,
     SqlAlchemyPaymentSettingsRepository,
+    SqlAlchemyPlanRepository,
     SqlAlchemyPlanSettingsRepository,
 )
 from kise.shared_kernel.application.ports import (
@@ -104,6 +105,7 @@ class KiseUnitOfWork(SqlAlchemyUnitOfWork):
         self.plan_settings = SqlAlchemyPlanSettingsRepository(session)
         self.payment_settings = SqlAlchemyPaymentSettingsRepository(session)
         self.administrators = SqlAlchemyAdministratorRepository(session)
+        self.plans = SqlAlchemyPlanRepository(session)
         self.categories = SqlAlchemyCategoryRepository(session)
         self.expenses = SqlAlchemyExpenseRepository(session)
         self.fixed_expenses = SqlAlchemyFixedExpenseRepository(session)
@@ -116,6 +118,7 @@ class KiseUnitOfWork(SqlAlchemyUnitOfWork):
             self.owners,
             self.linked_identities,
             self.administrators,
+            self.plans,
             self.categories,
             self.expenses,
             self.fixed_expenses,

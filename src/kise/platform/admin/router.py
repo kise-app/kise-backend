@@ -1,8 +1,10 @@
 """The admin portal's pages.
 
 ``GET  /kise-office``                         accounts by plan
-``GET  /kise-office/plans``                   a card per plan; ``?edit=<plan>`` makes one a form
-``POST /kise-office/plans/{plan}``            price or trial length, and scans / voice a month
+``GET  /kise-office/plans``                   a card per plan; ``?edit=<code>`` makes one a form
+``POST /kise-office/plans``                   add a plan
+``POST /kise-office/plans/{code}``            change one: name, price or trial length, allowance
+``POST /kise-office/plans/{code}/remove``     remove an added plan nobody is on
 ``GET  /kise-office/accounts``                accounts, searchable, 50 a page
 ``GET  /kise-office/accounts/{id}``           one account, with its plan
 ``POST /kise-office/accounts/{id}/plan``      Basic, a trial of N days, or Pro (N days or open)
@@ -32,12 +34,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from kise.identity.application.commands import (
+    AddPlanCommand,
     AppointAdministratorCommand,
     AuthenticateAdministratorCommand,
     ChangeAdministratorPasswordCommand,
     ChangePlanCommand,
     ListAccountsQuery,
     RemoveAdministratorCommand,
+    RemovePlanCommand,
     SetPaymentInstructionsCommand,
     UpdatePlanCommand,
 )
@@ -48,9 +52,10 @@ from kise.identity.domain.models import (
     MAX_MONTHLY_ALLOWANCE,
     MAX_PAYMENT_ACCOUNTS,
     MAX_TRIAL_DAYS,
+    MAX_VOICE_SECONDS,
     MIN_ADMIN_PASSWORD_LENGTH,
+    MIN_VOICE_SECONDS,
     PaymentInstructions,
-    Plan,
 )
 from kise.platform.admin.sessions import (
     CSRF_COOKIE,
@@ -257,7 +262,10 @@ def overview(request: Request, services: ServicesDep) -> Response:
     return _render(request, "overview.html", admin=admin, overview=services.admin.overview())
 
 
-# -- plans: one card each, editable in place --------------------------------------
+# -- plans: one card each, editable in place; admins add and remove them ----------------
+
+#: What ``?edit=`` takes to open the form for a plan that does not exist yet.
+NEW_PLAN = "new"
 
 
 def _plans_page(
@@ -271,17 +279,21 @@ def _plans_page(
     error: str | None = None,
     status_code: int = 200,
 ) -> Response:
+    cards = services.admin.plan_cards()
+    codes = {card.code for card in cards}
     return _render(
         request,
         "plans.html",
         status_code=status_code,
         admin=admin,
-        cards=services.admin.plan_cards(),
-        editing=editing,
+        cards=cards,
+        editing=editing if editing in codes or editing == NEW_PLAN else "",
         typed=typed,
         max_trial_days=MAX_TRIAL_DAYS,
         max_allowance=MAX_MONTHLY_ALLOWANCE,
-        saved=saved,
+        min_voice_seconds=MIN_VOICE_SECONDS,
+        max_voice_seconds=MAX_VOICE_SECONDS,
+        saved=saved if saved in codes or saved.startswith("removed:") else "",
         error=error,
     )
 
@@ -290,16 +302,14 @@ def _plans_page(
 def plans(
     request: Request,
     services: ServicesDep,
-    edit: Annotated[str, Query(max_length=8)] = "",
-    saved: Annotated[str, Query(max_length=8)] = "",
+    edit: Annotated[str, Query(max_length=20)] = "",
+    saved: Annotated[str, Query(max_length=60)] = "",
 ) -> Response:
-    """``?edit=pro`` turns that card into a form; every other card stays as it is."""
+    """``?edit=pro`` turns that card into a form; ``?edit=new`` opens the form to add a plan."""
     admin = _signed_in_admin(request, services)
     if admin is None:
         return _redirect(f"{PORTAL}/login")
-    editing = edit if edit in {plan.value for plan in Plan} else ""
-    shown = saved if saved in {plan.value for plan in Plan} else ""
-    return _plans_page(request, services, admin, editing=editing, saved=shown)
+    return _plans_page(request, services, admin, editing=edit, saved=saved)
 
 
 def _monthly(raw: str, label: str) -> int | None:
@@ -315,52 +325,163 @@ def _monthly(raw: str, label: str) -> int | None:
         ) from None
 
 
-@router.post("/plans/{plan}", response_class=HTMLResponse)
-def save_plan(
+def _whole(raw: str, message: str) -> int:
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ValidationError(message) from None
+
+
+PlanForm = dict[str, str]
+
+
+def _plan_form(
+    name: str,
+    price: str,
+    trial_days: str,
+    receipts: str,
+    voice: str,
+    voice_seconds: str,
+    typed_requests: str,
+    visible: str,
+) -> PlanForm:
+    return {
+        "name": name,
+        "price": price,
+        "trial_days": trial_days,
+        "receipts": receipts,
+        "voice": voice,
+        "voice_seconds": voice_seconds,
+        "typed_requests": typed_requests,
+        "visible": visible,
+    }
+
+
+FormField = Annotated[str, Form()]
+
+
+@router.post("/plans", response_class=HTMLResponse)
+def add_plan(
     request: Request,
     services: ServicesDep,
-    plan: str,
-    price: Annotated[str, Form()] = "",
-    trial_days: Annotated[str, Form()] = "",
-    receipts: Annotated[str, Form()] = "",
-    voice: Annotated[str, Form()] = "",
-    csrf: Annotated[str, Form()] = "",
+    name: FormField = "",
+    price: FormField = "",
+    receipts: FormField = "",
+    voice: FormField = "",
+    voice_seconds: FormField = "",
+    typed_requests: FormField = "",
+    visible: FormField = "",
+    csrf: FormField = "",
 ) -> Response:
-    """Trial saves its length, Basic and Pro their price; every plan its monthly allowance."""
     admin = _signed_in_admin(request, services)
     if admin is None:
         return _redirect(f"{PORTAL}/login")
-    if plan not in {p.value for p in Plan}:
-        return _render(request, "not_found.html", status_code=404, admin=admin)
-    is_trial = plan == Plan.TRIAL.value
-    typed = {"price": price, "trial_days": trial_days, "receipts": receipts, "voice": voice}
+    typed = _plan_form(name, price, "", receipts, voice, voice_seconds, typed_requests, visible)
     error: str | None = None
     if not _csrf_ok(request, csrf):
         error = "Your session expired. Please try again."
     else:
         try:
-            if is_trial:
-                try:
-                    days = int(trial_days.strip())
-                except ValueError:
-                    raise ValidationError(
-                        "Enter the trial length as a whole number of days"
-                    ) from None
-            services.admin.update_plan(
-                UpdatePlanCommand(
-                    plan=plan,
+            card = services.admin.add_plan(
+                AddPlanCommand(
+                    name=name,
+                    price=price,
+                    typed_requests=bool(typed_requests),
                     receipts=_monthly(receipts, "receipt scans"),
                     voice=_monthly(voice, "voice notes"),
-                    price=None if is_trial else price,
-                    trial_days=days if is_trial else None,
+                    voice_seconds=_whole(
+                        voice_seconds, "Enter the voice note length as a whole number of seconds"
+                    ),
+                    visible=bool(visible),
                 )
             )
-            return _redirect(f"{PORTAL}/plans", saved=plan)
+            return _redirect(f"{PORTAL}/plans", saved=card.code)
         except DomainError as exc:
             error = exc.message
     return _plans_page(
-        request, services, admin, editing=plan, typed=typed, error=error, status_code=422
+        request, services, admin, editing=NEW_PLAN, typed=typed, error=error, status_code=422
     )
+
+
+@router.post("/plans/{code}", response_class=HTMLResponse)
+def save_plan(
+    request: Request,
+    services: ServicesDep,
+    code: str,
+    name: FormField = "",
+    price: FormField = "",
+    trial_days: FormField = "",
+    receipts: FormField = "",
+    voice: FormField = "",
+    voice_seconds: FormField = "",
+    typed_requests: FormField = "",
+    visible: FormField = "",
+    csrf: FormField = "",
+) -> Response:
+    """One save covers the whole card: name, price (or the trial's length), what it includes,
+    and whether the app offers it."""
+    admin = _signed_in_admin(request, services)
+    if admin is None:
+        return _redirect(f"{PORTAL}/login")
+    card = next((c for c in services.admin.plan_cards() if c.code == code), None)
+    if card is None:
+        return _render(request, "not_found.html", status_code=404, admin=admin)
+    typed = _plan_form(
+        name, price, trial_days, receipts, voice, voice_seconds, typed_requests, visible
+    )
+    error: str | None = None
+    if not _csrf_ok(request, csrf):
+        error = "Your session expired. Please try again."
+    else:
+        try:
+            days = (
+                _whole(trial_days, "Enter the trial length as a whole number of days")
+                if card.is_trial
+                else None
+            )
+            services.admin.update_plan(
+                UpdatePlanCommand(
+                    code=code,
+                    name=name,
+                    price=price,
+                    typed_requests=bool(typed_requests),
+                    receipts=_monthly(receipts, "receipt scans"),
+                    voice=_monthly(voice, "voice notes"),
+                    voice_seconds=_whole(
+                        voice_seconds, "Enter the voice note length as a whole number of seconds"
+                    ),
+                    visible=bool(visible),
+                    trial_days=days,
+                )
+            )
+            return _redirect(f"{PORTAL}/plans", saved=code)
+        except DomainError as exc:
+            error = exc.message
+    return _plans_page(
+        request, services, admin, editing=code, typed=typed, error=error, status_code=422
+    )
+
+
+@router.post("/plans/{code}/remove", response_class=HTMLResponse)
+def remove_plan(
+    request: Request, services: ServicesDep, code: str, csrf: FormField = ""
+) -> Response:
+    admin = _signed_in_admin(request, services)
+    if admin is None:
+        return _redirect(f"{PORTAL}/login")
+    card = next((c for c in services.admin.plan_cards() if c.code == code), None)
+    if card is None:
+        return _render(request, "not_found.html", status_code=404, admin=admin)
+    if not _csrf_ok(request, csrf):
+        return _plans_page(
+            request, services, admin,
+            error="Your session expired. Please try again.", status_code=400,
+        )
+    try:
+        services.admin.remove_plan(RemovePlanCommand(code=code))
+    except DomainError as exc:
+        return _plans_page(request, services, admin, error=exc.message, status_code=422)
+    return _redirect(f"{PORTAL}/plans", saved=f"removed:{card.name}")
 
 
 @router.get("/accounts", response_class=HTMLResponse)
@@ -402,7 +523,7 @@ def _account_page(
         status_code=status_code,
         admin=admin,
         account=account,
-        plans=[plan.value for plan in Plan],
+        plans=[(str(plan.code), plan.name) for plan in services.admin.plans()],
         max_grant_days=MAX_GRANT_DAYS,
         saved=saved,
         error=error,

@@ -134,15 +134,34 @@ class SetPaymentInstructionsCommand:
 
 
 @dataclass(frozen=True, slots=True)
-class UpdatePlanCommand:
-    """Everything a plan card edits, saved together or not at all.
+class AddPlanCommand:
+    """A new plan. Its code comes from the name. ``receipts`` / ``voice`` None: no monthly limit."""
 
-    ``trial_days`` only for Trial; ``price`` only for Basic and Pro. ``receipts`` and ``voice``
-    are a month's allowance; None is no monthly limit.
-    """
-
-    plan: str
+    name: str
+    price: str
+    typed_requests: bool
     receipts: int | None
     voice: int | None
-    price: str | None = None
+    voice_seconds: int
+    visible: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePlanCommand:
+    """Everything a plan card edits, saved together or not at all. ``trial_days`` only counts for
+    the trial; its price is always empty."""
+
+    code: str
+    name: str
+    price: str
+    typed_requests: bool
+    receipts: int | None
+    voice: int | None
+    voice_seconds: int
+    visible: bool = True
     trial_days: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RemovePlanCommand:
+    code: str

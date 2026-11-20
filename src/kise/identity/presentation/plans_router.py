@@ -17,4 +17,6 @@ router = APIRouter(prefix="/api/plans", tags=["plans"])
 
 @router.get("/payment", response_model=PaymentInstructionsResponse)
 def payment(current_owner: CurrentOwner, services: ServicesDep) -> PaymentInstructionsResponse:
-    return PaymentInstructionsResponse.of(services.plans.payment_instructions(), current_owner)
+    return PaymentInstructionsResponse.of(
+        services.plans.payment_instructions(), services.plans.offered(), current_owner
+    )

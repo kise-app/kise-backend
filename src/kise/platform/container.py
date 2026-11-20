@@ -17,8 +17,9 @@ from dataclasses import dataclass
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from kise.assistant.application.ports import LanguageModel, RateLimiter
+from kise.assistant.application.ports import AudioInspector, LanguageModel, RateLimiter
 from kise.assistant.infrastructure.adapters import DisabledLanguageModel, InMemoryRateLimiter
+from kise.assistant.infrastructure.audio import HeaderAudioInspector
 from kise.assistant.infrastructure.gemini import GeminiLanguageModel
 from kise.expense_tracking.application.services import (
     BudgetService,
@@ -38,6 +39,7 @@ from kise.identity.application.services import (
     OwnerService,
     PlanService,
 )
+from kise.identity.application.services.plans import seed_default_plans
 from kise.identity.domain.events import OwnerRegistered
 from kise.identity.infrastructure.bcrypt_hasher import BcryptPasswordHasher
 from kise.identity.infrastructure.jwt_token_service import JwtTokenService
@@ -108,6 +110,7 @@ class Container:
             settings, language_model
         )
         self._rate_limiter: RateLimiter = InMemoryRateLimiter(settings.assistant_hourly_limit)
+        self._audio_inspector = HeaderAudioInspector()
         # Admin portal: its own session cookie, and a sign-in throttle of 10 tries per 15 minutes
         # per address.
         self._admin_sessions = AdminSessions(
@@ -148,6 +151,10 @@ class Container:
         return self._rate_limiter
 
     @property
+    def audio_inspector(self) -> AudioInspector:
+        return self._audio_inspector
+
+    @property
     def assistant_enabled(self) -> bool:
         return self._assistant_enabled
 
@@ -178,6 +185,15 @@ class Container:
     def create_schema(self) -> None:
         """Create tables directly. Used for tests and first-run; Alembic owns real deployments."""
         create_all(self._engine)
+        self.seed_plans()
+
+    def seed_plans(self) -> int:
+        """Create the default plans once, if there are none. Idempotent, like ``seed_units``."""
+        uow = self.open_unit_of_work()
+        try:
+            return seed_default_plans(uow.plans, uow, self._clock.now())
+        finally:
+            uow.session.close()
 
     def seed_units(self) -> int:
         """Seed the default units once, if the table is empty. Idempotent.
@@ -221,6 +237,7 @@ class Container:
             linked_identities=uow.linked_identities,
             social=self._social,
             plan_settings=uow.plan_settings,
+            plans=uow.plans,
         )
         categories = CategoryService(
             categories=uow.categories,
@@ -274,6 +291,7 @@ class Container:
             linked_identities=uow.linked_identities,
             plan_settings=uow.plan_settings,
             payment_settings=uow.payment_settings,
+            plans=uow.plans,
             clock=self._clock,
             uow=uow,
         )
@@ -287,9 +305,7 @@ class Container:
             uow=uow,
             admin=admin,
             administrators=administrators,
-            plans=PlanService(
-                payment_settings=uow.payment_settings, plan_settings=uow.plan_settings
-            ),
+            plans=PlanService(payment_settings=uow.payment_settings, plans=uow.plans),
             owners=owners,
             categories=categories,
             expenses=expenses,
@@ -316,6 +332,7 @@ class Container:
             linked_identities=uow.linked_identities,
             social=self._social,
             plan_settings=uow.plan_settings,
+            plans=uow.plans,
         )
         return uow, service
 

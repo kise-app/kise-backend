@@ -18,7 +18,7 @@ from kise.identity.application.commands import (
     UpdatePreferencesCommand,
 )
 from kise.identity.application.views import AuthenticatedOwner, OwnerProfile
-from kise.identity.domain.models import AI_PLANS, PaymentInstructions, Plan
+from kise.identity.domain.models import PaymentInstructions, PlanDefinition
 
 
 class RegisterRequest(BaseModel):
@@ -111,22 +111,33 @@ class UpdateProfileRequest(BaseModel):
 
 
 class PlanResponse(BaseModel):
-    """The account's plan. ``effective`` is what is in force now: an ended trial is ``basic``."""
+    """The account's plan. ``effective`` is the code in force now (a plan past its end is
+    ``basic``) and ``name`` its name, as an admin wrote it. Plans are added by admins, so codes
+    other than ``trial``, ``basic`` and ``pro`` occur."""
 
     plan: str
     effective: str
+    name: str
     expires_at: str | None
     days_left: int | None
+    #: Any part of the assistant: typed requests, receipt scans or voice notes.
     ai_enabled: bool
+    receipts_per_month: int | None
+    voice_per_month: int | None
+    max_voice_seconds: int
 
     @classmethod
     def of(cls, profile: OwnerProfile) -> PlanResponse:
         return cls(
-            plan=profile.plan.value,
-            effective=profile.effective_plan.value,
+            plan=str(profile.plan),
+            effective=str(profile.effective_plan),
+            name=profile.plan_name,
             expires_at=profile.plan_expires_at.isoformat() if profile.plan_expires_at else None,
             days_left=profile.plan_days_left,
             ai_enabled=profile.ai_enabled,
+            receipts_per_month=profile.receipts,
+            voice_per_month=profile.voice,
+            max_voice_seconds=profile.voice_seconds,
         )
 
 
@@ -180,11 +191,32 @@ class PaymentAccountResponse(BaseModel):
 
 
 class PlanPriceResponse(BaseModel):
-    """One plan someone can pay for, and what it costs (free text; empty when not set)."""
+    """One plan the app offers, what it costs (free text; empty when not set) and includes."""
 
     plan: str
+    name: str
     price: str
+    #: Any part of the assistant.
     ai_enabled: bool
+    typed_requests: bool
+    #: A month; null is no monthly limit, 0 is none.
+    receipts_per_month: int | None
+    voice_per_month: int | None
+    #: The plan the person is on now.
+    current: bool
+
+    @classmethod
+    def of(cls, plan: PlanDefinition, current_code: str) -> PlanPriceResponse:
+        return cls(
+            plan=str(plan.code),
+            name=plan.name,
+            price=plan.price,
+            ai_enabled=plan.includes_assistant,
+            typed_requests=plan.typed_requests,
+            receipts_per_month=plan.allowance.receipts,
+            voice_per_month=plan.allowance.voice,
+            current=str(plan.code) == current_code,
+        )
 
 
 class PaymentInstructionsResponse(BaseModel):
@@ -197,7 +229,7 @@ class PaymentInstructionsResponse(BaseModel):
 
     ready: bool
     accounts: list[PaymentAccountResponse]
-    #: Basic, then Pro, each with its price.
+    #: The plans on offer, in the admin's order.
     plans: list[PlanPriceResponse]
     telegram: str
     telegram_url: str | None
@@ -208,7 +240,10 @@ class PaymentInstructionsResponse(BaseModel):
 
     @classmethod
     def of(
-        cls, instructions: PaymentInstructions, profile: OwnerProfile
+        cls,
+        instructions: PaymentInstructions,
+        offered: list[PlanDefinition],
+        profile: OwnerProfile,
     ) -> PaymentInstructionsResponse:
         return cls(
             ready=instructions.ready,
@@ -216,12 +251,7 @@ class PaymentInstructionsResponse(BaseModel):
                 PaymentAccountResponse(bank=a.bank, holder=a.holder, number=a.number)
                 for a in instructions.accounts
             ],
-            plans=[
-                PlanPriceResponse(
-                    plan=plan.value, price=instructions.price_of(plan), ai_enabled=plan in AI_PLANS
-                )
-                for plan in (Plan.BASIC, Plan.PRO)
-            ],
+            plans=[PlanPriceResponse.of(plan, str(profile.effective_plan)) for plan in offered],
             telegram=instructions.telegram,
             telegram_url=instructions.telegram_url,
             phone=instructions.phone,

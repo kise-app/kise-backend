@@ -84,3 +84,14 @@ class AllowanceUsedUp(PermissionDenied):
             limit=limit,
             resets_on=resets_on,
         )
+
+
+class VoiceNoteTooLong(ValidationError):
+    """Longer than the plan allows for one voice note."""
+
+    code = "voice_note_too_long"
+
+    def __init__(self, max_seconds: int) -> None:
+        super().__init__(
+            f"Keep voice notes under {max_seconds} seconds", field="file", max_seconds=max_seconds
+        )

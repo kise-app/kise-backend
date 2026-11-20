@@ -34,7 +34,7 @@
           <a href="{{ portal }}/accounts/{{ p.owner_id }}" class="font-medium text-forest hover:underline">{{ p.display_name }}</a>
           <div class="text-ink-muted">{{ p.email }}</div>
         </td>
-        <td class="px-4 py-3">{{ plan_badge(p.effective_plan.value) }}</td>
+        <td class="px-4 py-3">{{ plan_badge(p.effective_plan.value, p.plan_name) }}</td>
         <td class="px-4 py-3 text-ink-muted">
           {% if p.plan_days_left is not none %}{{ p.plan_expires_at.strftime("%Y-%m-%d") }} · {{ p.plan_days_left }} d{% else %}—{% endif %}
         </td>

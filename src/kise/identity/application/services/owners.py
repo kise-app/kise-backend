@@ -27,6 +27,7 @@ from kise.identity.application.ports import (
     TokenService,
     VerifiedSocialAccount,
 )
+from kise.identity.application.services.plans import PlanCatalogue
 from kise.identity.application.views import (
     AuthenticatedOwner,
     OwnerProfile,
@@ -51,6 +52,7 @@ from kise.identity.domain.models import (
 from kise.identity.infrastructure.persistence.repository import (
     SqlAlchemyLinkedIdentityRepository,
     SqlAlchemyOwnerRepository,
+    SqlAlchemyPlanRepository,
     SqlAlchemyPlanSettingsRepository,
 )
 from kise.shared_kernel.application.ports import Clock, UnitOfWork
@@ -72,7 +74,9 @@ class OwnerService:
         linked_identities: SqlAlchemyLinkedIdentityRepository | None = None,
         social: SocialVerifier | None = None,
         plan_settings: SqlAlchemyPlanSettingsRepository | None = None,
+        plans: SqlAlchemyPlanRepository | None = None,
     ) -> None:
+        self._catalogue = PlanCatalogue(plans) if plans is not None else None
         self._plan_settings = plan_settings
         self._linked = linked_identities
         self._social = social
@@ -268,5 +272,7 @@ class OwnerService:
 
     # -- internals ------------------------------------------------------
     def _profile(self, owner: Owner) -> OwnerProfile:
-        return OwnerProfile.of(owner, self._clock.now())
+        now = self._clock.now()
+        plan = self._catalogue.in_force(owner.subscription, now) if self._catalogue else None
+        return OwnerProfile.of(owner, now, plan)
 
