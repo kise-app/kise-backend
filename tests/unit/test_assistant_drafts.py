@@ -14,11 +14,16 @@ from kise.assistant.domain.drafts import (
     MAX_DRAFTS,
     Catalog,
     CategoryOption,
+    CommitmentOption,
     UnitOption,
     build_draft,
     build_drafts,
+    build_fixed_draft,
+    build_payment_drafts,
     resolve_date,
 )
+from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
+from kise.shared_kernel.domain.calendar.period import Period
 
 TODAY = date(2026, 9, 4)  # ነሐሴ 29, 2018
 
@@ -182,3 +187,74 @@ def test_build_drafts_skips_garbage_and_caps_the_count():
 
 def test_build_drafts_of_not_a_list_is_empty():
     assert build_drafts({"amount": 5}, CATALOG, TODAY) == []
+
+
+
+# -- fixed monthly expenses -----------------------------------------------------
+
+NEHASE = Period(CalendarKind.ETHIOPIAN, 2018, 12)
+WITH_RENT = Catalog(
+    categories=CATALOG.categories,
+    commitments=(CommitmentOption("fx-1", "Rent", 800000, 5, NEHASE),),
+)
+
+
+def fixed(**overrides) -> dict:
+    return {
+        "title": "Rent",
+        "amount": 8000,
+        "category_id": "c-other",
+        "due_day": 5,
+        "starts": "this_month",
+        **overrides,
+    }
+
+
+def test_a_fixed_draft_starts_this_month_in_the_persons_calendar():
+    draft = build_fixed_draft(fixed(), CATALOG, TODAY, CalendarKind.ETHIOPIAN)
+    assert draft.amount_minor == 800000
+    assert draft.start_period == NEHASE
+    gregorian = build_fixed_draft(
+        fixed(starts="next_month"), CATALOG, TODAY, CalendarKind.GREGORIAN
+    )
+    assert gregorian.start_period == Period(CalendarKind.GREGORIAN, 2026, 10)
+
+
+@pytest.mark.parametrize(("due_day", "expected", "warned"), [(31, 30, False), (0, 1, True)])
+def test_due_days_are_kept_within_a_month(due_day, expected, warned):
+    draft = build_fixed_draft(fixed(due_day=due_day), CATALOG, TODAY, CalendarKind.ETHIOPIAN)
+    assert draft.due_day == expected
+    assert ("due_day_unclear" in draft.warnings) is warned
+
+
+@pytest.mark.parametrize("bad", [{"title": ""}, {"amount": 0}, {"amount": "lots"}])
+def test_a_fixed_draft_needs_a_title_and_an_amount(bad):
+    assert build_fixed_draft(fixed(**bad), CATALOG, TODAY, CalendarKind.ETHIOPIAN) is None
+
+
+def test_a_payment_must_name_a_real_commitment_and_defaults_to_its_amount():
+    drafts = build_payment_drafts(
+        [
+            {"commitment_id": "fx-1", "amount": 0, "date_kind": "days_ago", "days_ago": 2},
+            {"commitment_id": "fx-1", "amount": 7500, "date_kind": "today"},  # duplicate
+            {"commitment_id": "made-up", "amount": 100, "date_kind": "today"},
+        ],
+        WITH_RENT,
+        TODAY,
+    )
+    (payment,) = drafts
+    assert payment.fixed_expense_id == "fx-1"
+    assert payment.amount_minor == 800000
+    assert payment.period == NEHASE
+    assert payment.paid_on.gregorian == date(2026, 9, 2)
+
+
+def test_paying_an_already_paid_month_is_flagged():
+    paid = Catalog(
+        categories=CATALOG.categories,
+        commitments=(CommitmentOption("fx-1", "Rent", 800000, 5, NEHASE, is_settled=True),),
+    )
+    (payment,) = build_payment_drafts(
+        [{"commitment_id": "fx-1", "amount": 0, "date_kind": "today"}], paid, TODAY
+    )
+    assert "already_paid" in payment.warnings

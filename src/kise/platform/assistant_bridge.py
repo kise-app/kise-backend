@@ -11,8 +11,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from kise.assistant.domain.drafts import Catalog, CategoryOption, UnitOption
-from kise.expense_tracking.application.commands import MonthlySummaryQuery, PeriodInput
+from kise.assistant.domain.drafts import Catalog, CategoryOption, CommitmentOption, UnitOption
+from kise.expense_tracking.application.commands import (
+    MonthlySummaryQuery,
+    OccurrencesQuery,
+    PeriodInput,
+)
 from kise.platform.container import RequestServices
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.calendar.period import Period
@@ -30,7 +34,7 @@ class ExpenseTrackingSpending:
     def __init__(self, services: RequestServices) -> None:
         self._services = services
 
-    def catalog(self, owner_id: OwnerId) -> Catalog:
+    def catalog(self, owner_id: OwnerId, calendar: CalendarKind, today: date) -> Catalog:
         categories = tuple(
             CategoryOption(id=str(view.category_id), name=view.name, name_am=view.name_am)
             for view in self._services.categories.list(owner_id)
@@ -39,7 +43,32 @@ class ExpenseTrackingSpending:
             UnitOption(id=str(view.unit_id), code=view.code, name=view.name)
             for view in self._services.units.list()
         )
-        return Catalog(categories=categories, units=units)
+        current = Period.from_date(today, calendar)
+        month = self._services.fixed_expenses.occurrences_for(
+            OccurrencesQuery(
+                owner_id=owner_id,
+                period=PeriodInput(
+                    year=current.year, month=current.month, calendar=current.calendar
+                ),
+            )
+        )
+        due_days = {
+            str(view.fixed_expense_id): view.due_day
+            for view in self._services.fixed_expenses.list(owner_id)
+        }
+        commitments = tuple(
+            CommitmentOption(
+                id=str(o.fixed_expense_id),
+                title=o.title,
+                amount_minor=o.amount.minor_units,
+                due_day=due_days.get(str(o.fixed_expense_id), 1),
+                # The commitment's own (anchor) Period: what a settlement is filed under.
+                period=o.period,
+                is_settled=o.is_settled,
+            )
+            for o in month.occurrences
+        )
+        return Catalog(categories=categories, units=units, commitments=commitments)
 
     def month_facts(
         self, owner_id: OwnerId, calendar: CalendarKind, today: date, months: int

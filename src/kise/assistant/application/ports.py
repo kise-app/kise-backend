@@ -49,8 +49,9 @@ class LanguageModel(ABC):
 
 
 class SpendingContext(Protocol):
-    def catalog(self, owner_id: OwnerId) -> Catalog:
-        """The Owner's live categories and every unit of measurement."""
+    def catalog(self, owner_id: OwnerId, calendar: CalendarKind, today: date) -> Catalog:
+        """The Owner's live categories, every unit of measurement, and the fixed monthly
+        expenses owed in the month containing ``today``."""
         ...
 
     def month_facts(

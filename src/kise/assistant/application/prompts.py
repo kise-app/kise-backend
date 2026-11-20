@@ -11,7 +11,7 @@ import json
 from datetime import date
 from typing import Any
 
-from kise.assistant.domain.drafts import DATE_KINDS, PAYMENT_METHODS, Catalog
+from kise.assistant.domain.drafts import DATE_KINDS, PAYMENT_METHODS, STARTS, Catalog
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.calendar.spend_date import SpendDate
 
@@ -65,6 +65,44 @@ def extraction_schema(catalog: Catalog) -> dict[str, Any]:
         },
         "required": ["amount", "category_id", "date_kind", "payment_method"],
     }
+    commitment_ids = [c.id for c in catalog.commitments] or [""]
+    fixed = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Short name: Rent, Internet, School fees."},
+            "amount": {"type": "number", "description": "The monthly amount, in major units."},
+            "category_id": {"type": "string", "enum": category_ids},
+            "due_day": {
+                "type": "integer",
+                "description": "Day of the month it is due, 1-30. 1 when not said.",
+            },
+            "starts": {
+                "type": "string",
+                "enum": list(STARTS),
+                "description": "this_month unless they said it starts next month.",
+            },
+            "note": {"type": "string"},
+        },
+        "required": ["title", "amount", "category_id", "due_day", "starts"],
+    }
+    payment = {
+        "type": "object",
+        "properties": {
+            "commitment_id": {
+                "type": "string",
+                "enum": commitment_ids,
+                "description": "Which of the person's fixed monthly expenses was paid.",
+            },
+            "amount": {
+                "type": "number",
+                "description": "What was paid, in major units. 0 if they did not say.",
+            },
+            "date_kind": {"type": "string", "enum": list(DATE_KINDS)},
+            "days_ago": {"type": "integer"},
+            "date": {"type": "string"},
+        },
+        "required": ["commitment_id", "amount", "date_kind"],
+    }
     return {
         "type": "object",
         "properties": {
@@ -80,6 +118,16 @@ def extraction_schema(catalog: Catalog) -> dict[str, Any]:
             },
             "merchant": {"type": "string", "description": "For a receipt: the shop name."},
             "expenses": {"type": "array", "items": expense},
+            "fixed_expenses": {
+                "type": "array",
+                "items": fixed,
+                "description": "New monthly commitments they described (rent every month ...).",
+            },
+            "payments": {
+                "type": "array",
+                "items": payment,
+                "description": "Existing fixed monthly expenses they say they paid.",
+            },
         },
         "required": ["message", "expenses"],
     }
@@ -98,6 +146,16 @@ def extraction_instructions(
         {"id": c.id, "name": c.name, "name_am": c.name_am} for c in catalog.categories
     ]
     units = [{"code": u.code, "name": u.name} for u in catalog.units]
+    commitments = [
+        {
+            "id": c.id,
+            "title": c.title,
+            "amount": f"{c.amount_minor / 100:.2f}",
+            "due_day": c.due_day,
+            "already_paid_this_month": c.is_settled,
+        }
+        for c in catalog.commitments
+    ]
     source_rules = {
         "text": "The input is a short message the person typed.",
         "voice": "The input is a voice recording, usually Amharic, English, or a mix of both. "
@@ -125,10 +183,17 @@ def extraction_instructions(
             "calendars.",
             "- Payment: ቴሌብር/telebirr -> telebirr; ባንክ, CBE, transfer -> bank; card -> card; "
             "otherwise cash.",
+            "- A cost that repeats every month (ቤት ኪራይ/rent, internet, school fees, 'every "
+            "month', 'በየወሩ') is a fixed_expenses entry, not an expense.",
+            "- 'I paid the rent' / 'ኪራይ ከፈልኩ' for one of the person's fixed monthly expenses "
+            "listed below is a payments entry with that commitment_id, not an expense. Only use "
+            "ids from that list.",
             "- If no amount can be found, return no expenses and say so in message.",
             "- Never invent expenses that were not said or shown.",
             f"Categories: {json.dumps(categories, ensure_ascii=False)}",
             f"Units: {json.dumps(units, ensure_ascii=False)}",
+            "Fixed monthly expenses owed this month: "
+            f"{json.dumps(commitments, ensure_ascii=False)}",
         ]
     )
 
@@ -150,3 +215,18 @@ def question_instructions(
             f"Facts: {json.dumps(facts, ensure_ascii=False)}",
         ]
     )
+
+
+def question_schema() -> dict[str, Any]:
+    """For a spoken question: what was asked, and the answer."""
+    return {
+        "type": "object",
+        "properties": {
+            "transcript": {
+                "type": "string",
+                "description": "The question as it was said, word for word, in its language.",
+            },
+            "answer": {"type": "string", "description": "The answer, following the rules."},
+        },
+        "required": ["transcript", "answer"],
+    }

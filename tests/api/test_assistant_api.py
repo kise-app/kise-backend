@@ -225,6 +225,8 @@ def test_nothing_found_is_a_message_not_an_error(client: TestClient, model: Scri
         "transcript": None,
         "merchant": None,
         "drafts": [],
+        "fixed_drafts": [],
+        "payment_drafts": [],
     }
 
 
@@ -391,7 +393,7 @@ def test_questions_are_answered_from_server_facts(client: TestClient, model: Scr
         headers=header,
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"answer": "በዚህ ወር ለምግብ 1,250 ETB አውጥተዋል።"}
+    assert response.json() == {"answer": "በዚህ ወር ለምግብ 1,250 ETB አውጥተዋል።", "transcript": None}
 
     system = model.calls[0]["system"]
     # Three months of facts, the current one first, with the real figure in it.
@@ -399,3 +401,115 @@ def test_questions_are_answered_from_server_facts(client: TestClient, model: Scr
     assert '"total": "1250.00"' in system
     assert "Hamle 2018" in system and "Sene 2018" in system
     assert "Amharic" in system
+
+
+
+# -- fixed monthly expenses and spoken questions ----------------------------------
+
+
+def schedule_rent(client: TestClient, header: dict[str, str]) -> dict:
+    response = client.post(
+        "/api/fixed-expenses",
+        json={
+            "category_id": category_id(client, header, "Rent"),
+            "title": "Rent",
+            "amount_minor": 800000,
+            "start_period": {"year": 2018, "month": 12, "calendar": "ethiopian"},
+            "due_day": 5,
+        },
+        headers=header,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_a_monthly_cost_comes_back_as_a_fixed_draft(client: TestClient, model: ScriptedModel):
+    header = signed_in(client)
+    rent = category_id(client, header, "Rent")
+    model.json_answers.append(
+        {
+            "transcript": "ቤት ኪራይ በየወሩ 8000 ብር በ5",
+            "message": "አዲስ ቋሚ ወጪ",
+            "expenses": [],
+            "fixed_expenses": [
+                {
+                    "title": "ቤት ኪራይ",
+                    "amount": 8000,
+                    "category_id": rent,
+                    "due_day": 5,
+                    "starts": "next_month",
+                }
+            ],
+        }
+    )
+    body = client.post(
+        "/api/assistant/voice",
+        files={"file": ("v.m4a", b"audio", "audio/mp4")},
+        data={"today": "2026-09-04"},
+        headers=header,
+    ).json()
+    assert body["drafts"] == []
+    (fixed,) = body["fixed_drafts"]
+    assert fixed["title"] == "ቤት ኪራይ"
+    assert fixed["amount"] == {"amount_minor": 800000, "currency": "ETB"}
+    assert fixed["due_day"] == 5
+    # The owner reads Ethiopian; today is ነሐሴ 2018, so "next month" is ጳጉሜን 2018.
+    assert fixed["start_period"]["calendar"] == "ethiopian"
+    assert (fixed["start_period"]["year"], fixed["start_period"]["month"]) == (2018, 13)
+    # Nothing was scheduled: it is a draft.
+    assert client.get("/api/fixed-expenses", headers=header).json() == []
+
+
+def test_paid_the_rent_becomes_a_payment_draft(client: TestClient, model: ScriptedModel):
+    header = signed_in(client)
+    commitment = schedule_rent(client, header)
+    model.json_answers.append(
+        {
+            "message": "ኪራይ ተከፍሏል",
+            "expenses": [],
+            "payments": [
+                {"commitment_id": commitment["id"], "amount": 0, "date_kind": "today"},
+                {"commitment_id": commitment["id"], "amount": 0, "date_kind": "today"},
+                {"commitment_id": "invented", "amount": 10, "date_kind": "today"},
+            ],
+        }
+    )
+    body = client.post(
+        "/api/assistant/text", json={"text": "ኪራይ ከፈልኩ", "today": "2026-09-04"}, headers=header
+    ).json()
+    (payment,) = body["payment_drafts"]  # duplicates and unknown ids are dropped
+    assert payment["fixed_expense_id"] == commitment["id"]
+    assert payment["amount"]["amount_minor"] == 800000  # no amount said: what was committed
+    assert (payment["period"]["year"], payment["period"]["month"]) == (2018, 12)
+    assert payment["paid_on"]["gregorian"] == "2026-09-04"
+
+    # The model was shown the commitment by id.
+    assert commitment["id"] in model.calls[0]["system"]
+    schema = model.calls[0]["schema"]["properties"]["payments"]["items"]["properties"]
+    assert commitment["id"] in schema["commitment_id"]["enum"]
+
+
+def test_a_spoken_question_is_transcribed_and_answered(client: TestClient, model: ScriptedModel):
+    header = signed_in(client)
+    model.json_answers.append({"transcript": "ምን ያህል አወጣሁ?", "answer": "እስካሁን 0 ETB።"})
+    response = client.post(
+        "/api/assistant/ask/voice",
+        files={"file": ("q.m4a", b"audio", "audio/mp4")},
+        data={"today": "2026-09-04"},
+        headers=header,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"answer": "እስካሁን 0 ETB።", "transcript": "ምን ያህል አወጣሁ?"}
+    assert isinstance(model.calls[0]["parts"][0], MediaPart)
+    assert '"month": "Nehase 2018"' in model.calls[0]["system"]
+
+
+def test_a_spoken_question_must_be_audio(client: TestClient, model: ScriptedModel):
+    header = signed_in(client)
+    response = client.post(
+        "/api/assistant/ask/voice",
+        files={"file": ("q.jpg", b"img", "image/jpeg")},
+        headers=header,
+    )
+    assert response.json()["code"] == "unsupported_media"
+    assert model.calls == []

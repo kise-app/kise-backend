@@ -5,6 +5,11 @@
 ``POST /api/assistant/voice``     multipart ``file`` (a voice note)       -> transcript + drafts
 ``POST /api/assistant/receipt``   multipart ``file`` (a receipt photo)    -> drafts
 ``POST /api/assistant/ask``       {"question": "how much on food?"}      -> an answer
+``POST /api/assistant/ask/voice`` multipart ``file`` (a spoken question) -> transcript + answer
+
+Reading also recognises fixed monthly expenses: "rent 8,000 every month on the 5th" comes back as a
+``fixed_drafts`` entry (a new commitment), and "I paid the rent" as a ``payment_drafts`` entry for
+one of the person's existing commitments. The app schedules or settles those after confirmation.
 
 Every route takes an optional ``today`` (``YYYY-MM-DD``, the phone's date) so "today" means the
 person's day rather than the server's UTC one. Nothing here records an expense: the app shows the
@@ -26,8 +31,9 @@ from kise.assistant.application.service import (
     AssistantRequest,
     DraftReply,
 )
-from kise.assistant.domain.drafts import DraftExpense
+from kise.assistant.domain.drafts import DraftExpense, FixedDraft, PaymentDraft
 from kise.platform.api.dependencies import AssistantDep, AssistantStatusDep
+from kise.shared_kernel.domain.calendar.period import Period
 from kise.shared_kernel.domain.errors import ValidationError
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
@@ -103,11 +109,63 @@ class DraftResponse(BaseModel):
         )
 
 
+def _period(period: Period) -> dict[str, Any]:
+    return {**period.labels(), "year": period.year, "month": period.month}
+
+
+class FixedDraftResponse(BaseModel):
+    title: str
+    category_id: str
+    category_name: str
+    category_name_am: str | None
+    amount: dict[str, Any]
+    due_day: int
+    start_period: dict[str, Any]
+    note: str | None
+    warnings: list[str]
+
+    @classmethod
+    def of(cls, draft: FixedDraft, currency: str) -> FixedDraftResponse:
+        return cls(
+            title=draft.title,
+            category_id=draft.category_id,
+            category_name=draft.category_name,
+            category_name_am=draft.category_name_am,
+            amount={"amount_minor": draft.amount_minor, "currency": currency},
+            due_day=draft.due_day,
+            start_period=_period(draft.start_period),
+            note=draft.note,
+            warnings=list(draft.warnings),
+        )
+
+
+class PaymentDraftResponse(BaseModel):
+    fixed_expense_id: str
+    title: str
+    period: dict[str, Any]
+    amount: dict[str, Any]
+    paid_on: dict[str, Any]
+    warnings: list[str] = Field(description="already_paid, date_unclear, ...")
+
+    @classmethod
+    def of(cls, draft: PaymentDraft, currency: str) -> PaymentDraftResponse:
+        return cls(
+            fixed_expense_id=draft.fixed_expense_id,
+            title=draft.title,
+            period=_period(draft.period),
+            amount={"amount_minor": draft.amount_minor, "currency": currency},
+            paid_on=draft.paid_on.describe(),
+            warnings=list(draft.warnings),
+        )
+
+
 class DraftReplyResponse(BaseModel):
     message: str
     transcript: str | None
     merchant: str | None
     drafts: list[DraftResponse]
+    fixed_drafts: list[FixedDraftResponse] = Field(default_factory=list)
+    payment_drafts: list[PaymentDraftResponse] = Field(default_factory=list)
 
     @classmethod
     def of(cls, reply: DraftReply, currency: str) -> DraftReplyResponse:
@@ -116,15 +174,18 @@ class DraftReplyResponse(BaseModel):
             transcript=reply.transcript,
             merchant=reply.merchant,
             drafts=[DraftResponse.of(d, currency) for d in reply.drafts],
+            fixed_drafts=[FixedDraftResponse.of(d, currency) for d in reply.fixed_drafts],
+            payment_drafts=[PaymentDraftResponse.of(d, currency) for d in reply.payment_drafts],
         )
 
 
 class AnswerResponse(BaseModel):
     answer: str
+    transcript: str | None = None
 
     @classmethod
     def of(cls, reply: AnswerReply) -> AnswerResponse:
-        return cls(answer=reply.answer)
+        return cls(answer=reply.answer, transcript=reply.transcript)
 
 
 class StatusResponse(BaseModel):
@@ -183,6 +244,18 @@ def ask(body: QuestionRequest, assistant: Assistant) -> AnswerResponse:
     service, request = assistant
     request = _with_today(request, body.today)
     return AnswerResponse.of(service.ask(request, body.question))
+
+
+@router.post("/ask/voice", response_model=AnswerResponse)
+def ask_voice(
+    assistant: Assistant,
+    file: Annotated[UploadFile, File(description="A spoken question: m4a/aac, mp3, wav, ...")],
+    today: Annotated[str | None, Form()] = None,
+) -> AnswerResponse:
+    service, request = assistant
+    request = _with_today(request, today)
+    data = _read_capped(file, MAX_AUDIO_BYTES)
+    return AnswerResponse.of(service.ask_voice(request, data, file.content_type))
 
 
 def _with_today(request: AssistantRequest, today: str | None) -> AssistantRequest:

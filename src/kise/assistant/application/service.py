@@ -26,8 +26,16 @@ from kise.assistant.application.prompts import (
     extraction_instructions,
     extraction_schema,
     question_instructions,
+    question_schema,
 )
-from kise.assistant.domain.drafts import DraftExpense, build_drafts
+from kise.assistant.domain.drafts import (
+    DraftExpense,
+    FixedDraft,
+    PaymentDraft,
+    build_drafts,
+    build_fixed_drafts,
+    build_payment_drafts,
+)
 from kise.assistant.domain.errors import AssistantFailed, MediaTooLarge, UnsupportedMedia
 from kise.shared_kernel.application.ports import Clock
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
@@ -83,12 +91,16 @@ class DraftReply:
     message: str
     transcript: str | None = None
     merchant: str | None = None
+    fixed_drafts: tuple[FixedDraft, ...] = ()
+    payment_drafts: tuple[PaymentDraft, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class AnswerReply:
     answer: str
     facts: list[dict[str, Any]] = field(default_factory=list)
+    #: For a spoken question: what was heard.
+    transcript: str | None = None
 
 
 def _media_type(content_type: str | None) -> str:
@@ -121,7 +133,7 @@ class AssistantService:
     def _extract(self, request: AssistantRequest, parts: list[Part], source: str) -> DraftReply:
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
-        catalog = self._spending.catalog(request.owner_id)
+        catalog = self._spending.catalog(request.owner_id, request.calendar, today)
         if not catalog.categories:
             raise ValidationError("Add a category before recording expenses", field="category")
         system = extraction_instructions(
@@ -138,6 +150,8 @@ class AssistantService:
         if not isinstance(answer, dict):
             raise AssistantFailed("answer_not_an_object")
         drafts = build_drafts(answer.get("expenses"), catalog, today)
+        fixed = build_fixed_drafts(answer.get("fixed_expenses"), catalog, today, request.calendar)
+        payments = build_payment_drafts(answer.get("payments"), catalog, today)
         message = answer.get("message") if isinstance(answer.get("message"), str) else ""
         transcript = answer.get("transcript") if isinstance(answer.get("transcript"), str) else ""
         merchant = answer.get("merchant") if isinstance(answer.get("merchant"), str) else ""
@@ -148,6 +162,8 @@ class AssistantService:
             if source == "voice"
             else None,
             merchant=(" ".join(merchant.split())[:80] or None) if source == "receipt" else None,
+            fixed_drafts=tuple(fixed),
+            payment_drafts=tuple(payments),
         )
 
     @staticmethod
@@ -185,6 +201,29 @@ class AssistantService:
     ) -> DraftReply:
         image = self._checked_media(data, content_type, IMAGE_TYPES, MAX_IMAGE_BYTES)
         return self._extract(request, [image], "receipt")
+
+    def ask_voice(
+        self, request: AssistantRequest, data: bytes, content_type: str | None
+    ) -> AnswerReply:
+        """A question asked out loud: transcribed and answered in one call."""
+        audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
+        self._limiter.take(str(request.owner_id))
+        today = self._today(request)
+        facts = self._spending.month_facts(request.owner_id, request.calendar, today, months=3)
+        system = question_instructions(
+            facts=facts, today=today, language=request.language, currency=request.currency
+        ) + "\nThe question is in the audio: transcribe it into transcript, answer in answer."
+        result = self._model.generate_json(system=system, parts=[audio], schema=question_schema())
+        answer = result.get("answer") if isinstance(result.get("answer"), str) else ""
+        transcript = result.get("transcript") if isinstance(result.get("transcript"), str) else ""
+        answer = answer.strip()
+        if not answer:
+            raise AssistantFailed("empty_answer")
+        return AnswerReply(
+            answer=answer[:MAX_ANSWER_LENGTH],
+            facts=facts,
+            transcript=" ".join(transcript.split())[:MAX_QUESTION_LENGTH] or None,
+        )
 
     def ask(self, request: AssistantRequest, question: str) -> AnswerReply:
         cleaned = " ".join((question or "").split())
