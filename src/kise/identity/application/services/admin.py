@@ -16,15 +16,16 @@ from kise.identity.application.commands import (
     ChangePlanCommand,
     ListAccountsQuery,
     SetPaymentInstructionsCommand,
-    SetTrialLengthCommand,
+    UpdatePlanCommand,
 )
-from kise.identity.application.views import AccountPage, AccountView, PlanOverview
+from kise.identity.application.views import AccountPage, AccountView, PlanCard, PlanOverview
 from kise.identity.domain.models import (
+    AI_PLANS,
     Owner,
     PaymentAccount,
     PaymentInstructions,
     Plan,
-    PlanPolicy,
+    PlanAllowance,
     Subscription,
 )
 from kise.identity.infrastructure.persistence.repository import (
@@ -92,25 +93,17 @@ class AccountAdministrationService:
         self._uow.commit()
         return self._view(owner)
 
-    def set_trial_length(self, command: SetTrialLengthCommand) -> PlanPolicy:
-        policy = PlanPolicy(trial_days=command.trial_days)
-        self._plan_settings.save(policy)
-        self._uow.commit()
-        return policy
-
     def payment_instructions(self) -> PaymentInstructions:
         return self._payment_settings.get()
 
     def set_payment_instructions(
         self, command: SetPaymentInstructionsCommand
     ) -> PaymentInstructions:
-        instructions = PaymentInstructions(
+        instructions = self._payment_settings.get().with_contact(
             accounts=tuple(
                 PaymentAccount(bank=bank, holder=holder, number=number)
                 for bank, holder, number in command.accounts
             ),
-            basic_price=command.basic_price,
-            pro_price=command.pro_price,
             telegram=command.telegram,
             phone=command.phone,
             email=command.email,
@@ -119,3 +112,39 @@ class AccountAdministrationService:
         self._payment_settings.save(instructions)
         self._uow.commit()
         return instructions
+
+    # -- plans --------------------------------------------------------------------
+    def plan_cards(self) -> tuple[PlanCard, ...]:
+        """Trial, Basic and Pro, each with what an admin can change about it."""
+        counts = self._owners.count_by_plan()
+        policy = self._plan_settings.get()
+        prices = self._payment_settings.get()
+        return tuple(
+            PlanCard(
+                plan=plan,
+                price=prices.price_of(plan),
+                trial_days=policy.trial_days if plan is Plan.TRIAL else None,
+                ai_enabled=plan in AI_PLANS,
+                accounts=counts.get(plan.value, 0),
+                receipts=policy.allowance_for(plan).receipts,
+                voice=policy.allowance_for(plan).voice,
+            )
+            for plan in Plan
+        )
+
+    def update_plan(self, command: UpdatePlanCommand) -> PlanCard:
+        """A plan card's edit: its price or trial length, and its monthly allowance. Every value
+        is checked before anything is saved, so a bad one changes nothing."""
+        plan = Plan.parse(command.plan)
+        policy = self._plan_settings.get().with_allowance(
+            plan, PlanAllowance(receipts=command.receipts, voice=command.voice)
+        )
+        if plan is Plan.TRIAL and command.trial_days is not None:
+            policy = policy.with_trial_days(command.trial_days)
+        instructions = self._payment_settings.get()
+        if plan is not Plan.TRIAL and command.price is not None:
+            instructions = instructions.with_price(plan, command.price)
+        self._plan_settings.save(policy)
+        self._payment_settings.save(instructions)
+        self._uow.commit()
+        return next(card for card in self.plan_cards() if card.plan is plan)

@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from kise.assistant.infrastructure.persistence.repository import SqlAlchemyUsageRepository
 from kise.expense_tracking.infrastructure.persistence.repositories import (
     SqlAlchemyBudgetRepository,
     SqlAlchemyCategoryRepository,
@@ -109,6 +110,8 @@ class KiseUnitOfWork(SqlAlchemyUnitOfWork):
         self.units = SqlAlchemyUnitOfMeasurementRepository(session)
         self.items = SqlAlchemyItemRepository(session)
         self.budgets = SqlAlchemyBudgetRepository(session)
+        # Plain counters, not tracked aggregates, so not registered for synchronising.
+        self.assistant_usage = SqlAlchemyUsageRepository(session)
         for repository in (
             self.owners,
             self.linked_identities,

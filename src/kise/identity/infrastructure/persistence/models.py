@@ -53,6 +53,9 @@ class PlanSettingsModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trial_days: Mapped[int] = mapped_column(Integer, default=14)
+    # {"trial": {"receipts": null, "voice": null}, "basic": {"receipts": 0, "voice": 0}, ...}
+    # null is no monthly limit. A plan missing here keeps its default.
+    allowances: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class LinkedIdentityModel(Base):

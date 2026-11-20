@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from kise.assistant.application.ports import LanguageModel
+from kise.assistant.domain.errors import AssistantFailed
 from kise.identity.application.commands import AppointAdministratorCommand
 from kise.platform.admin.cli import main as admin_cli
 from kise.platform.admin.router import PORTAL
@@ -44,10 +45,13 @@ class Clock(FixedClock):
 class CountingModel(LanguageModel):
     def __init__(self) -> None:
         self.calls = 0
+        self.fail = False
 
     def generate_json(self, *, system, parts, schema):
         self.calls += 1
-        return {"message": "ok", "expenses": []}
+        if self.fail:
+            raise AssistantFailed("model_down")
+        return {"message": "ok", "expenses": [], "answer": "fine", "transcript": "how much?"}
 
     def generate_text(self, *, system, parts):
         self.calls += 1
@@ -225,10 +229,10 @@ def test_an_app_bearer_token_is_not_a_portal_session(client: TestClient):
 
 def test_forms_without_the_csrf_token_are_refused(client: TestClient):
     signed_in_admin(client)
-    response = client.post(f"{PORTAL}/trial", data={"trial_days": "30", "csrf": "forged"})
+    response = client.post(f"{PORTAL}/plans/trial", data={"trial_days": "30", "csrf": "forged"})
     assert response.status_code == 422
     assert "session expired" in response.text
-    assert 'value="14"' in client.get(PORTAL).text
+    assert "14 days" in client.get(f"{PORTAL}/plans").text
 
 
 def test_sign_in_is_throttled(client: TestClient):
@@ -248,12 +252,17 @@ def test_overview_counts_and_trial_length(client: TestClient):
     page = client.get(PORTAL).text
     assert '<p class="mt-1 text-3xl font-semibold" data-testid="total">1</p>' in page
 
+    assert "14 days of Pro features" in page
+
+    plans = f"{PORTAL}/plans"
     response = client.post(
-        f"{PORTAL}/trial", data={"trial_days": "30", "csrf": csrf(client, PORTAL)},
+        f"{plans}/trial", data={"trial_days": "30", "csrf": csrf(client, plans)},
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert "Trial length saved" in client.get(f"{PORTAL}?saved=trial").text
+    assert response.headers["location"] == f"{plans}?saved=trial"
+    assert "Trial saved" in client.get(f"{plans}?saved=trial").text
+    assert "30 days of Pro features" in client.get(PORTAL).text
 
     later = register(client, "selam@example.com")["owner"]["plan"]
     assert later["days_left"] == 30
@@ -261,17 +270,20 @@ def test_overview_counts_and_trial_length(client: TestClient):
 
 def test_a_zero_day_trial_starts_new_accounts_on_basic(client: TestClient):
     signed_in_admin(client)
-    client.post(f"{PORTAL}/trial", data={"trial_days": "0", "csrf": csrf(client, PORTAL)})
+    plans = f"{PORTAL}/plans"
+    client.post(f"{plans}/trial", data={"trial_days": "0", "csrf": csrf(client, plans)})
     assert register(client, "selam@example.com")["owner"]["plan"]["effective"] == "basic"
 
 
 def test_an_out_of_range_trial_length_is_explained(client: TestClient):
     signed_in_admin(client)
+    plans = f"{PORTAL}/plans"
     response = client.post(
-        f"{PORTAL}/trial", data={"trial_days": "999", "csrf": csrf(client, PORTAL)}
+        f"{plans}/trial", data={"trial_days": "999", "csrf": csrf(client, plans)}
     )
     assert response.status_code == 422
     assert "from 0 to 365" in response.text
+    assert 'value="999"' in response.text, "what was typed stays in the open card"
 
 
 def test_search_and_change_a_plan(client: TestClient, clock: Clock, model: CountingModel):
@@ -517,8 +529,6 @@ def payment_form(client: TestClient, **fields) -> dict:
         "bank": ["Commercial Bank of Ethiopia", "telebirr", "", "", ""],
         "holder": ["Kise PLC", "Kise PLC", "", "", ""],
         "number": ["1000123456789", "0911234567", "", "", ""],
-        "basic_price": "100 birr a month",
-        "pro_price": "300 birr a month",
         "telegram": "https://t.me/kise_support",
         "phone": "+251 911 234 567",
         "email": "pay@kise.example",
@@ -527,6 +537,15 @@ def payment_form(client: TestClient, **fields) -> dict:
     }
     form.update(fields)
     return form
+
+
+def set_price(client: TestClient, plan: str, price: str):
+    plans = f"{PORTAL}/plans"
+    return client.post(
+        f"{plans}/{plan}",
+        data={"price": price, "csrf": csrf(client, f"{plans}?edit={plan}")},
+        follow_redirects=False,
+    )
 
 
 def test_payment_details_start_empty_and_need_sign_in(client: TestClient):
@@ -549,6 +568,8 @@ def test_an_admin_sets_payment_details_and_the_app_shows_them(client: TestClient
     assert "The app shows these details now" in page
     assert 'value="@kise_support"' in page
     assert page.count('data-testid="payment-row"') == 5
+    set_price(client, "basic", "100 birr a month")
+    set_price(client, "pro", "300 birr a month")
 
     info = client.get("/api/plans/payment", headers=bearer(body)).json()
     assert info == {
@@ -587,7 +608,7 @@ def test_bad_payment_details_are_explained_and_kept(client: TestClient, fields, 
     response = client.post(f"{PORTAL}/payments", data=payment_form(client, **fields))
     assert response.status_code == 422
     assert message in response.text
-    assert 'value="300 birr a month"' in response.text, "what was typed is kept"
+    assert "We switch you to Pro within a day." in response.text, "what was typed is kept"
     assert "Not shown in the app yet" not in response.text
 
 
@@ -599,6 +620,7 @@ def test_bad_payment_details_are_explained_and_kept(client: TestClient, fields, 
     [
         (PORTAL, "Overview"),
         (f"{PORTAL}/accounts", "Accounts"),
+        (f"{PORTAL}/plans", "Plans"),
         (f"{PORTAL}/payments", "Payments"),
         (f"{PORTAL}/admins", "Admins"),
     ],
@@ -609,12 +631,213 @@ def test_every_page_has_the_sidebar_with_its_own_link_marked(
     signed_in_admin(client)
     page = client.get(path).text
     sidebar = page.split('data-testid="sidebar"')[1].split("</aside>")[0]
-    for label in ("Overview", "Accounts", "Payments", "Admins", "Your password", "Sign out"):
+    for label in ("Overview", "Accounts", "Plans", "Payments", "Admins", "Your password"):
         assert label in sidebar
-    marked = re.findall(r'aria-current="page">\s*<svg.*?</svg><span>([^<]+)</span>', sidebar, re.S)
+    assert "Sign out" in sidebar
+    assert 'data-testid="menu-button"' in page and 'aria-controls="admin-sidebar"' in page
+    assert '<script src="/static/admin.js' in page
+    marked = re.findall(
+        r'aria-current="page">\s*<svg.*?</svg><span[^>]*>([^<]+)</span>', sidebar, re.S
+    )
     assert marked == [current]
     assert ADMIN in sidebar
 
 
 def test_the_sign_in_page_has_no_sidebar(client: TestClient):
-    assert 'data-testid="sidebar"' not in client.get(f"{PORTAL}/login").text
+    page = client.get(f"{PORTAL}/login").text
+    assert 'data-testid="sidebar"' not in page and "admin.js" not in page
+
+
+def test_the_menu_script_is_served_and_allowed(client: TestClient):
+    signed_in_admin(client)
+    assert "script-src 'self'" in client.get(PORTAL).headers["content-security-policy"]
+    script = client.get("/static/admin.js")
+    assert script.status_code == 200 and "javascript" in script.headers["content-type"]
+
+
+# -- plan cards ---------------------------------------------------------------------
+
+
+def test_plan_cards_show_each_plan_and_open_one_for_editing(client: TestClient):
+    register(client)
+    signed_in_admin(client)
+    page = client.get(f"{PORTAL}/plans").text
+    for plan in ("trial", "basic", "pro"):
+        assert f'data-testid="plan-card-{plan}"' in page
+        assert f'data-testid="edit-{plan}"' in page
+    assert "No price set" in page
+    assert "<form" not in page.split('data-testid="plan-card-trial"')[1], "read-only until Edit"
+
+    editing = client.get(f"{PORTAL}/plans?edit=pro").text
+    pro = editing.split('data-testid="plan-card-pro"')[1]
+    assert 'name="price"' in pro and 'data-testid="edit-pro"' not in pro
+    assert 'name="price"' not in editing.split('data-testid="plan-card-pro"')[0]
+
+
+def test_saving_a_price_changes_only_that_plan(client: TestClient):
+    signed_in_admin(client)
+    saved = set_price(client, "pro", "300 birr a month")
+    assert saved.status_code == 303
+    assert saved.headers["location"] == f"{PORTAL}/plans?saved=pro"
+    set_price(client, "basic", "100 birr a month")
+    set_price(client, "pro", "350 birr a month")
+
+    page = client.get(f"{PORTAL}/plans?saved=pro").text
+    assert "Pro saved" in page
+    assert "350 birr a month" in page and "100 birr a month" in page
+
+
+def test_editing_a_plan_keeps_payment_details_and_the_other_way_round(client: TestClient):
+    signed_in_admin(client)
+    set_price(client, "pro", "300 birr a month")
+    client.post(f"{PORTAL}/payments", data=payment_form(client))
+    assert "300 birr a month" in client.get(f"{PORTAL}/plans").text
+    set_price(client, "basic", "100 birr a month")
+    assert 'value="@kise_support"' in client.get(f"{PORTAL}/payments").text
+
+
+def test_a_bad_plan_edit_stays_open_with_the_error(client: TestClient):
+    signed_in_admin(client)
+    response = set_price(client, "pro", "x" * 121)
+    assert response.status_code == 422
+    assert "Pro price is too long" in response.text
+    assert 'name="price"' in response.text.split('data-testid="plan-card-pro"')[1]
+    assert client.post(
+        f"{PORTAL}/plans/gold", data={"csrf": csrf(client, f"{PORTAL}/plans")}
+    ).status_code == 404
+
+
+# -- monthly allowances of receipt scans and voice notes ------------------------------
+
+RECEIPT = ("/api/assistant/receipt", {"files": {"file": ("r.jpg", b"i", "image/jpeg")}})
+VOICE = ("/api/assistant/voice", {"files": {"file": ("v.m4a", b"a", "audio/mp4")}})
+ASK_VOICE = ("/api/assistant/ask/voice", {"files": {"file": ("q.m4a", b"a", "audio/mp4")}})
+TEXT = ("/api/assistant/text", {"json": {"text": "taxi 100"}})
+
+
+def send(client: TestClient, header: dict, route) -> int:
+    path, kwargs = route
+    return client.post(path, headers=header, **kwargs).status_code
+
+
+def set_allowance(client: TestClient, plan: str, receipts: str, voice: str, **extra):
+    plans = f"{PORTAL}/plans"
+    data = {"receipts": receipts, "voice": voice, "csrf": csrf(client, f"{plans}?edit={plan}")}
+    if plan == "trial":
+        data.setdefault("trial_days", "14")
+    data.update(extra)
+    return client.post(f"{plans}/{plan}", data=data, follow_redirects=False)
+
+
+def usage(client: TestClient, header: dict) -> dict:
+    status = client.get("/api/assistant/status", headers=header).json()
+    return {item["kind"]: item for item in status["usage"]} | {"resets_on": status["resets_on"]}
+
+
+def test_by_default_trial_and_pro_have_no_monthly_limit(client: TestClient):
+    header = bearer(register(client))
+    for _ in range(3):
+        assert send(client, header, RECEIPT) == 200
+    now = usage(client, header)
+    assert now["receipt"] == {"kind": "receipt", "limit": None, "used": 3, "remaining": None}
+    assert now["voice"]["limit"] is None
+    assert now["resets_on"] == "2026-10-01"
+
+
+def test_a_used_up_allowance_is_refused_before_any_model_call(
+    client: TestClient, model: CountingModel
+):
+    signed_in_admin(client)
+    assert set_allowance(client, "trial", receipts="2", voice="1").status_code == 303
+    header = bearer(register(client))
+
+    assert send(client, header, RECEIPT) == 200
+    assert send(client, header, RECEIPT) == 200
+    calls = model.calls
+    third = client.post(RECEIPT[0], headers=header, **RECEIPT[1])
+    assert third.status_code == 403
+    assert third.json()["code"] == "allowance_used_up"
+    assert third.json()["detail"] == {"kind": "receipt", "limit": 2, "resets_on": "2026-10-01"}
+    assert model.calls == calls, "no model call once the allowance is used up"
+
+    # Voice is counted separately, and asking aloud is voice too.
+    assert send(client, header, ASK_VOICE) == 200
+    assert send(client, header, VOICE) == 403
+    # Typed requests have no monthly allowance.
+    assert send(client, header, TEXT) == 200
+
+    now = usage(client, header)
+    assert now["receipt"]["used"] == 2 and now["receipt"]["remaining"] == 0
+    assert now["voice"]["used"] == 1 and now["voice"]["remaining"] == 0
+
+
+def test_the_counts_start_again_next_month(client: TestClient, clock: Clock):
+    signed_in_admin(client)
+    # A 60-day trial, so the account is still on it in October.
+    set_allowance(client, "trial", receipts="1", voice="", trial_days="60")
+    header = bearer(register(client))
+    assert send(client, header, RECEIPT) == 200
+    assert send(client, header, RECEIPT) == 403
+    clock.advance(days=27)  # 1 October
+    assert send(client, header, RECEIPT) == 200
+
+
+def test_a_failed_request_is_not_counted(client: TestClient, model: CountingModel):
+    signed_in_admin(client)
+    set_allowance(client, "trial", receipts="1", voice="")
+    header = bearer(register(client))
+    model.fail = True
+    assert send(client, header, RECEIPT) == 502
+    model.fail = False
+    assert send(client, header, RECEIPT) == 200
+    assert usage(client, header)["receipt"]["used"] == 1
+
+
+def test_basic_can_be_given_scans_and_voice_but_not_typed_requests(
+    client: TestClient, clock: Clock
+):
+    signed_in_admin(client)
+    set_allowance(client, "basic", receipts="3", voice="0")
+    header = bearer(register(client))
+    clock.advance(days=15)  # the trial is over: Basic now
+
+    assert send(client, header, RECEIPT) == 200
+    assert send(client, header, VOICE) == 403
+    response = client.post(TEXT[0], headers=header, **TEXT[1])
+    assert response.json()["code"] == "upgrade_required"
+    assert usage(client, header)["receipt"]["limit"] == 3
+
+
+def test_plan_cards_show_and_edit_the_allowance(client: TestClient):
+    signed_in_admin(client)
+    page = client.get(f"{PORTAL}/plans").text
+    basic = page.split('data-testid="allowance-basic"')[1].split("</dl>")[0]
+    assert "No scans" in basic and "No voice notes" in basic
+    assert "No limit on scans" in page.split('data-testid="allowance-pro"')[1].split("</dl>")[0]
+
+    saved = set_allowance(client, "pro", receipts="1,000", voice="200", price="300 birr a month")
+    assert saved.status_code == 303
+    pro = client.get(f"{PORTAL}/plans").text.split('data-testid="plan-card-pro"')[1]
+    assert "1,000 scans a month" in pro and "200 voice notes a month" in pro
+    assert "300 birr a month" in pro
+
+
+@pytest.mark.parametrize(
+    ("receipts", "voice", "message"),
+    [
+        ("-1", "", "from 0 to 10,000"),
+        ("lots", "", "Enter receipt scans as a whole number"),
+        ("", "20000", "from 0 to 10,000"),
+    ],
+)
+def test_a_bad_allowance_is_explained_and_changes_nothing(
+    client: TestClient, receipts: str, voice: str, message: str
+):
+    signed_in_admin(client)
+    set_price(client, "pro", "300 birr a month")
+    response = set_allowance(client, "pro", receipts=receipts, voice=voice, price="999 birr")
+    assert response.status_code == 422
+    assert message in response.text
+    assert f'value="{receipts}"' in response.text.split('data-testid="plan-card-pro"')[1]
+    after = client.get(f"{PORTAL}/plans").text
+    assert "300 birr a month" in after and "999 birr" not in after, "nothing was saved"

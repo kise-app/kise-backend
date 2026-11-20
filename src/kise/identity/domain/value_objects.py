@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -250,17 +250,76 @@ class Subscription:
         return max(1, math.ceil(remaining / 86400))
 
 
+#: The most receipt scans or voice notes a plan can include in a month.
+MAX_MONTHLY_ALLOWANCE = 10_000
+
+
+def _allowance(value: object, *, field: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError("Enter a whole number, or leave it empty for no limit", field=field)
+    if not 0 <= value <= MAX_MONTHLY_ALLOWANCE:
+        raise ValidationError(
+            f"Choose from 0 to {MAX_MONTHLY_ALLOWANCE:,} a month, or leave it empty for no limit",
+            field=field,
+        )
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class PlanAllowance:
+    """How many receipt scans and voice notes a plan includes each month.
+
+    ``None`` is no monthly limit (the hourly limit still applies); ``0`` is none at all, so the app
+    offers Pro instead. Voice covers both recording expenses and asking questions out loud.
+    """
+
+    receipts: int | None = None
+    voice: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "receipts", _allowance(self.receipts, field="receipts"))
+        object.__setattr__(self, "voice", _allowance(self.voice, field="voice"))
+
+
+#: Until an admin changes them: Trial and Pro without a monthly limit, Basic without the assistant.
+DEFAULT_ALLOWANCES: dict[Plan, PlanAllowance] = {
+    Plan.TRIAL: PlanAllowance(),
+    Plan.BASIC: PlanAllowance(receipts=0, voice=0),
+    Plan.PRO: PlanAllowance(),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class PlanPolicy:
-    """The plan rules an admin can tune. Today: how long new accounts' trial runs.
+    """The plan rules an admin can tune: how long new accounts' trial runs, and how many receipt
+    scans and voice notes each plan includes a month.
 
     ``trial_days = 0`` means new accounts start on Basic.
     """
 
     trial_days: int = 14
+    allowances: dict[Plan, PlanAllowance] = field(
+        default_factory=lambda: dict(DEFAULT_ALLOWANCES)
+    )
 
     def __post_init__(self) -> None:
         _whole_days(self.trial_days, low=0, high=MAX_TRIAL_DAYS, field="trial_days")
+        given = {Plan.parse(plan): allowance for plan, allowance in dict(self.allowances).items()}
+        if not all(isinstance(allowance, PlanAllowance) for allowance in given.values()):
+            raise ValidationError("allowances must be PlanAllowance values", field="allowances")
+        # Every plan always has an allowance: one never set keeps its default.
+        object.__setattr__(self, "allowances", {**DEFAULT_ALLOWANCES, **given})
+
+    def allowance_for(self, plan: Plan | str) -> PlanAllowance:
+        return self.allowances[Plan.parse(plan)]
+
+    def with_allowance(self, plan: Plan | str, allowance: PlanAllowance) -> PlanPolicy:
+        return replace(self, allowances={**self.allowances, Plan.parse(plan): allowance})
+
+    def with_trial_days(self, trial_days: int) -> PlanPolicy:
+        return replace(self, trial_days=trial_days)
 
     def new_account_subscription(self, now: datetime) -> Subscription:
         if self.trial_days == 0:
@@ -364,9 +423,9 @@ class PaymentInstructions:
         if not all(isinstance(account, PaymentAccount) for account in accounts):
             raise ValidationError("accounts must be PaymentAccount values", field="accounts")
         object.__setattr__(self, "accounts", accounts)
-        for field, label in (("basic_price", "Basic price"), ("pro_price", "Pro price")):
+        for name, label in (("basic_price", "Basic price"), ("pro_price", "Pro price")):
             object.__setattr__(
-                self, field, _text(getattr(self, field), field=field, label=label, limit=120)
+                self, name, _text(getattr(self, name), field=name, label=label, limit=120)
             )
         object.__setattr__(self, "telegram", clean_telegram_username(self.telegram))
         object.__setattr__(self, "phone", clean_phone(self.phone))
@@ -380,6 +439,29 @@ class PaymentInstructions:
     def price_of(self, plan: Plan | str) -> str:
         """The price shown for ``plan``; empty for Trial, or a plan without one."""
         return {Plan.BASIC: self.basic_price, Plan.PRO: self.pro_price}.get(Plan.parse(plan), "")
+
+    def with_price(self, plan: Plan | str, price: str) -> PaymentInstructions:
+        """The same instructions with a new price for ``plan``. Trial is free: it has no price."""
+        field = {Plan.BASIC: "basic_price", Plan.PRO: "pro_price"}.get(Plan.parse(plan))
+        if field is None:
+            raise ValidationError(
+                "The trial has no price; set its length instead", field="plan"
+            )
+        return replace(self, **{field: price})
+
+    def with_contact(
+        self,
+        *,
+        accounts: tuple[PaymentAccount, ...],
+        telegram: str,
+        phone: str,
+        email: str,
+        note: str,
+    ) -> PaymentInstructions:
+        """New accounts and contact details, keeping the prices."""
+        return replace(
+            self, accounts=accounts, telegram=telegram, phone=phone, email=email, note=note
+        )
 
     @property
     def telegram_url(self) -> str | None:

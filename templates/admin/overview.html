@@ -1,10 +1,8 @@
 {% extends "admin/base.html" %}
-{% from "admin/_macros.html" import plan_badge, notice %}
+{% from "admin/_macros.html" import plan_badge %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 <h1 class="mb-6 text-2xl font-semibold">Overview</h1>
-{% if saved == "trial" %}{{ notice("Trial length saved. It applies to accounts created from now on.") }}{% endif %}
-{% if error %}{{ notice(error, "error") }}{% endif %}
 
 <section aria-label="Accounts by plan" class="mb-10 grid gap-4 sm:grid-cols-4">
   <div class="rounded-2xl border border-line bg-card p-5">
@@ -22,16 +20,7 @@
 
 <section class="max-w-xl rounded-2xl border border-line bg-card p-6">
   <h2 class="text-lg font-semibold">Trial for new accounts</h2>
-  <p class="mt-1 text-sm text-ink-muted">New accounts get Pro features (voice, receipt scans, questions) for this many days, then Basic. 0 means new accounts start on Basic. Existing trials keep their end date.</p>
-  <form method="post" action="{{ portal }}/trial" class="mt-4 flex items-end gap-3">
-    <input type="hidden" name="csrf" value="{{ csrf_token }}">
-    <div>
-      <label for="trial_days" class="mb-1 block text-sm font-medium">Days</label>
-      <input id="trial_days" name="trial_days" type="number" min="0" max="{{ max_trial_days }}" required
-             value="{{ overview.policy.trial_days }}"
-             class="w-32 rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
-    </div>
-    <button type="submit" class="rounded-lg bg-forest px-4 py-2 font-semibold text-white hover:bg-forest-bright">Save</button>
-  </form>
+  <p class="mt-1 text-sm text-ink-muted" data-testid="trial-days">{% if overview.policy.trial_days %}{{ overview.policy.trial_days }} days of Pro features, then Basic.{% else %}Off: new accounts start on Basic.{% endif %}</p>
+  <a href="{{ portal }}/plans?edit=trial#plan-trial" class="mt-4 inline-block rounded-lg border border-line px-4 py-2 text-sm hover:bg-page">Change it under Plans</a>
 </section>
 {% endblock %}

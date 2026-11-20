@@ -1,11 +1,12 @@
 """The admin portal's pages.
 
-``GET  /kise-office``                         plan overview and the trial length for new accounts
-``POST /kise-office/trial``                   change the trial length
+``GET  /kise-office``                         accounts by plan
+``GET  /kise-office/plans``                   a card per plan; ``?edit=<plan>`` makes one a form
+``POST /kise-office/plans/{plan}``            price or trial length, and scans / voice a month
 ``GET  /kise-office/accounts``                accounts, searchable, 50 a page
 ``GET  /kise-office/accounts/{id}``           one account, with its plan
 ``POST /kise-office/accounts/{id}/plan``      Basic, a trial of N days, or Pro (N days or open)
-``GET  /kise-office/payments`` · ``POST``     how people pay for Pro (shown in the app)
+``GET  /kise-office/payments`` · ``POST``     where to pay and how to send the screenshot
 ``GET  /kise-office/admins``                  who can sign in here; add one
 ``POST /kise-office/admins``                  add an admin (email and a first password)
 ``POST /kise-office/admins/{id}/remove``      remove another admin
@@ -38,12 +39,13 @@ from kise.identity.application.commands import (
     ListAccountsQuery,
     RemoveAdministratorCommand,
     SetPaymentInstructionsCommand,
-    SetTrialLengthCommand,
+    UpdatePlanCommand,
 )
 from kise.identity.application.views import AdministratorView
 from kise.identity.domain.errors import InvalidCredentials
 from kise.identity.domain.models import (
     MAX_GRANT_DAYS,
+    MAX_MONTHLY_ALLOWANCE,
     MAX_PAYMENT_ACCOUNTS,
     MAX_TRIAL_DAYS,
     MIN_ADMIN_PASSWORD_LENGTH,
@@ -59,7 +61,12 @@ from kise.platform.admin.sessions import (
 from kise.platform.api.dependencies import ServicesDep
 from kise.platform.api.landing import STYLE_PATH, STYLE_VERSION, TEMPLATES_DIR
 from kise.platform.container import Container
-from kise.shared_kernel.domain.errors import DomainError, NotFound, TooManyRequests
+from kise.shared_kernel.domain.errors import (
+    DomainError,
+    NotFound,
+    TooManyRequests,
+    ValidationError,
+)
 from kise.shared_kernel.domain.identifiers import AdministratorId, OwnerId
 
 # Where the portal lives. Deliberately not /admin, which every scanner probes; the real protection
@@ -82,8 +89,8 @@ _SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "same-origin",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self'; img-src 'self' data:; "
-    "form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
+    "img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 }
 
 
@@ -243,55 +250,116 @@ def logout(request: Request, csrf: Annotated[str, Form()] = "") -> Response:
 
 
 @router.get("", response_class=HTMLResponse)
-def overview(
-    request: Request, services: ServicesDep, saved: Annotated[str, Query()] = ""
-) -> Response:
+def overview(request: Request, services: ServicesDep) -> Response:
     admin = _signed_in_admin(request, services)
     if admin is None:
         return _redirect(f"{PORTAL}/login")
+    return _render(request, "overview.html", admin=admin, overview=services.admin.overview())
+
+
+# -- plans: one card each, editable in place --------------------------------------
+
+
+def _plans_page(
+    request: Request,
+    services: ServicesDep,
+    admin: AdministratorView,
+    *,
+    editing: str = "",
+    typed: dict[str, str] | None = None,
+    saved: str = "",
+    error: str | None = None,
+    status_code: int = 200,
+) -> Response:
     return _render(
         request,
-        "overview.html",
+        "plans.html",
+        status_code=status_code,
         admin=admin,
-        overview=services.admin.overview(),
+        cards=services.admin.plan_cards(),
+        editing=editing,
+        typed=typed,
         max_trial_days=MAX_TRIAL_DAYS,
+        max_allowance=MAX_MONTHLY_ALLOWANCE,
         saved=saved,
-        error=None,
+        error=error,
     )
 
 
-@router.post("/trial", response_class=HTMLResponse)
-def set_trial(
+@router.get("/plans", response_class=HTMLResponse)
+def plans(
     request: Request,
     services: ServicesDep,
-    trial_days: Annotated[str, Form()] = "",
-    csrf: Annotated[str, Form()] = "",
+    edit: Annotated[str, Query(max_length=8)] = "",
+    saved: Annotated[str, Query(max_length=8)] = "",
 ) -> Response:
+    """``?edit=pro`` turns that card into a form; every other card stays as it is."""
     admin = _signed_in_admin(request, services)
     if admin is None:
         return _redirect(f"{PORTAL}/login")
+    editing = edit if edit in {plan.value for plan in Plan} else ""
+    shown = saved if saved in {plan.value for plan in Plan} else ""
+    return _plans_page(request, services, admin, editing=editing, saved=shown)
+
+
+def _monthly(raw: str, label: str) -> int | None:
+    """An allowance field: empty is no limit, otherwise a whole number."""
+    cleaned = raw.strip().replace(",", "")
+    if not cleaned:
+        return None
+    try:
+        return int(cleaned)
+    except ValueError:
+        raise ValidationError(
+            f"Enter {label} as a whole number, or leave it empty for no limit"
+        ) from None
+
+
+@router.post("/plans/{plan}", response_class=HTMLResponse)
+def save_plan(
+    request: Request,
+    services: ServicesDep,
+    plan: str,
+    price: Annotated[str, Form()] = "",
+    trial_days: Annotated[str, Form()] = "",
+    receipts: Annotated[str, Form()] = "",
+    voice: Annotated[str, Form()] = "",
+    csrf: Annotated[str, Form()] = "",
+) -> Response:
+    """Trial saves its length, Basic and Pro their price; every plan its monthly allowance."""
+    admin = _signed_in_admin(request, services)
+    if admin is None:
+        return _redirect(f"{PORTAL}/login")
+    if plan not in {p.value for p in Plan}:
+        return _render(request, "not_found.html", status_code=404, admin=admin)
+    is_trial = plan == Plan.TRIAL.value
+    typed = {"price": price, "trial_days": trial_days, "receipts": receipts, "voice": voice}
     error: str | None = None
     if not _csrf_ok(request, csrf):
         error = "Your session expired. Please try again."
     else:
         try:
-            services.admin.set_trial_length(
-                SetTrialLengthCommand(trial_days=int(trial_days.strip()))
+            if is_trial:
+                try:
+                    days = int(trial_days.strip())
+                except ValueError:
+                    raise ValidationError(
+                        "Enter the trial length as a whole number of days"
+                    ) from None
+            services.admin.update_plan(
+                UpdatePlanCommand(
+                    plan=plan,
+                    receipts=_monthly(receipts, "receipt scans"),
+                    voice=_monthly(voice, "voice notes"),
+                    price=None if is_trial else price,
+                    trial_days=days if is_trial else None,
+                )
             )
-            return _redirect(PORTAL, saved="trial")
-        except ValueError:
-            error = "Enter the trial length as a whole number of days."
+            return _redirect(f"{PORTAL}/plans", saved=plan)
         except DomainError as exc:
             error = exc.message
-    return _render(
-        request,
-        "overview.html",
-        status_code=422,
-        admin=admin,
-        overview=services.admin.overview(),
-        max_trial_days=MAX_TRIAL_DAYS,
-        saved="",
-        error=error,
+    return _plans_page(
+        request, services, admin, editing=plan, typed=typed, error=error, status_code=422
     )
 
 
@@ -581,8 +649,6 @@ def _payments_page(
 
 def _form_of(instructions: PaymentInstructions) -> dict[str, str]:
     return {
-        "basic_price": instructions.basic_price,
-        "pro_price": instructions.pro_price,
         "telegram": f"@{instructions.telegram}" if instructions.telegram else "",
         "phone": instructions.phone,
         "email": instructions.email,
@@ -615,8 +681,6 @@ def save_payments(
     bank: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI copies form defaults
     holder: Annotated[list[str], Form()] = [],  # noqa: B006
     number: Annotated[list[str], Form()] = [],  # noqa: B006
-    basic_price: Annotated[str, Form()] = "",
-    pro_price: Annotated[str, Form()] = "",
     telegram: Annotated[str, Form()] = "",
     phone: Annotated[str, Form()] = "",
     email: Annotated[str, Form()] = "",
@@ -637,8 +701,6 @@ def save_payments(
             services.admin.set_payment_instructions(
                 SetPaymentInstructionsCommand(
                     accounts=filled,
-                    basic_price=basic_price,
-                    pro_price=pro_price,
                     telegram=telegram,
                     phone=phone,
                     email=email,
@@ -650,8 +712,6 @@ def save_payments(
             error = exc.message
     # Show what was typed, not what is stored, so nothing has to be entered twice.
     typed = {
-        "basic_price": basic_price,
-        "pro_price": pro_price,
         "telegram": telegram,
         "phone": phone,
         "email": email,

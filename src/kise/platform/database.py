@@ -75,6 +75,7 @@ def create_all(engine: Engine) -> None:
     on the metadata. This function is the one place that knows the full list — which is also the
     one place that would need a line added if a fourth context ever owned tables.
     """
+    import kise.assistant.infrastructure.persistence.models  # noqa: F401
     import kise.expense_tracking.infrastructure.persistence.models  # noqa: F401
     import kise.identity.infrastructure.persistence.models  # noqa: F401
 

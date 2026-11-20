@@ -1,0 +1,100 @@
+{% extends "admin/base.html" %}
+{% from "admin/_macros.html" import notice, plan_badge %}
+{% block title %}Plans{% endblock %}
+{% block content %}
+{% set about = {
+  "trial": ("Everything, for a limited time. New accounts start here, then move to Basic.", ["Voice notes", "Receipt scans", "Questions about spending", "Everything in Basic"]),
+  "basic": ("Everything except the assistant.", ["Expenses, fixed monthly costs, budgets", "Reports and categories", "Ethiopian and Gregorian calendars"]),
+  "pro": ("Everything, including the assistant.", ["Voice notes", "Receipt scans", "Questions about spending", "Everything in Basic"]),
+} %}
+{% set saved_text = {
+  "trial": "Trial saved. A new length applies to accounts created from now on; allowances apply at once.",
+  "basic": "Basic saved. The app shows it now.",
+  "pro": "Pro saved. The app shows it now.",
+} %}
+{% macro monthly(value, what) -%}
+{%- if value is none %}No limit on {{ what }}{% elif value == 0 %}No {{ what }}{% else %}{{ "{:,}".format(value) }} {{ what }} a month{% endif -%}
+{%- endmacro %}
+{% macro allowance_input(id, name, label, value) -%}
+<div>
+  <label for="{{ id }}" class="mb-1 block text-sm font-medium">{{ label }}</label>
+  <input id="{{ id }}" name="{{ name }}" inputmode="numeric" maxlength="6" value="{{ value }}" placeholder="No limit"
+         class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+</div>
+{%- endmacro %}
+<h1 class="text-2xl font-semibold">Plans</h1>
+<p class="mb-6 max-w-3xl text-ink-muted">What each plan includes and costs, and how many receipt scans and voice notes it allows a month (counts start again on the 1st). Click Edit on a card to change it. To move one person to another plan, open them under Accounts.</p>
+{% if saved %}{{ notice(saved_text[saved]) }}{% endif %}
+
+<div class="grid items-start gap-6 md:grid-cols-3">
+  {% for card in cards %}
+  {% set name = card.plan.value %}
+  {% set is_editing = editing == name %}
+  <section id="plan-{{ name }}" data-testid="plan-card-{{ name }}" aria-labelledby="plan-{{ name }}-title"
+           class="flex flex-col rounded-2xl border bg-card p-6 {{ 'border-forest ring-2 ring-forest/20' if is_editing else 'border-line' }}">
+    <div class="flex items-start justify-between gap-3">
+      <h2 id="plan-{{ name }}-title" class="text-lg font-semibold"><span class="sr-only">{{ name }} plan</span>{{ plan_badge(name) }}</h2>
+      {% if not is_editing %}
+      <a href="{{ portal }}/plans?edit={{ name }}#plan-{{ name }}" class="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-page" aria-label="Edit the {{ name }} plan" data-testid="edit-{{ name }}">Edit</a>
+      {% endif %}
+    </div>
+
+    {% if is_editing %}
+    <form method="post" action="{{ portal }}/plans/{{ name }}" class="mt-4 space-y-3">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      {% if error %}<p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{{ error }}</p>{% endif %}
+      {% if name == "trial" %}
+      <label for="trial_days" class="block text-sm font-medium">Length for new accounts</label>
+      <div class="flex items-center gap-2">
+        <input id="trial_days" name="trial_days" type="number" min="0" max="{{ max_trial_days }}" required autofocus
+               value="{{ typed.trial_days if typed else card.trial_days }}"
+               class="w-28 rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+        <span class="text-sm text-ink-muted">days</span>
+      </div>
+      <p class="text-xs text-ink-muted">0 starts new accounts on Basic. Accounts already on a trial keep their end date.</p>
+      {% else %}
+      <label for="price-{{ name }}" class="block text-sm font-medium">Price</label>
+      <input id="price-{{ name }}" name="price" maxlength="120" autofocus
+             value="{{ typed.price if typed else card.price }}"
+             placeholder="{{ 'e.g. 100 birr a month' if name == 'basic' else 'e.g. 300 birr a month, or 3,000 birr a year' }}"
+             class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+      <p class="text-xs text-ink-muted">Shown in the app as you write it. Leave it empty to show no price.</p>
+      {% endif %}
+      <fieldset class="space-y-3 border-t border-line pt-3">
+        <legend class="pt-3 text-sm font-medium">A month</legend>
+        <div class="grid grid-cols-2 gap-3">
+          {{ allowance_input("receipts-" ~ name, "receipts", "Receipt scans", typed.receipts if typed else ("" if card.receipts is none else card.receipts)) }}
+          {{ allowance_input("voice-" ~ name, "voice", "Voice notes", typed.voice if typed else ("" if card.voice is none else card.voice)) }}
+        </div>
+        <p class="text-xs text-ink-muted">Empty for no limit, 0 for none. Voice notes include questions asked out loud. Up to {{ "{:,}".format(max_allowance) }}.</p>
+      </fieldset>
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="rounded-lg bg-forest px-4 py-2 font-semibold text-white hover:bg-forest-bright">Save</button>
+        <a href="{{ portal }}/plans#plan-{{ name }}" class="rounded-lg border border-line px-4 py-2 hover:bg-page">Cancel</a>
+      </div>
+    </form>
+    {% else %}
+    <p class="mt-4 text-2xl font-semibold" data-testid="plan-value-{{ name }}">
+      {% if name == "trial" %}
+        {% if card.trial_days %}{{ card.trial_days }} {{ "day" if card.trial_days == 1 else "days" }}{% else %}Off{% endif %}
+      {% elif card.price %}{{ card.price }}
+      {% else %}<span class="text-base font-normal text-ink-muted">No price set</span>{% endif %}
+    </p>
+    {% if name == "trial" %}<p class="text-sm text-ink-muted">{{ "free, for new accounts" if card.trial_days else "new accounts start on Basic" }}</p>{% endif %}
+    <dl class="mt-4 space-y-1 rounded-xl bg-page px-4 py-3 text-sm" data-testid="allowance-{{ name }}">
+      <div class="flex justify-between gap-3"><dt class="text-ink-muted">Receipt scans</dt><dd class="font-medium">{{ monthly(card.receipts, "scans") }}</dd></div>
+      <div class="flex justify-between gap-3"><dt class="text-ink-muted">Voice notes</dt><dd class="font-medium">{{ monthly(card.voice, "voice notes") }}</dd></div>
+    </dl>
+    {% endif %}
+
+    <p class="mt-4 text-sm text-ink-muted">{{ about[name][0] }}</p>
+    <ul class="mt-3 space-y-1.5 text-sm">
+      {% for item in about[name][1] %}
+      <li class="flex items-start gap-2"><span aria-hidden="true" class="mt-0.5 text-forest">✓</span>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <a href="{{ portal }}/accounts" class="mt-5 border-t border-line pt-4 text-sm text-ink-muted hover:text-ink">{{ card.accounts }} {{ "account" if card.accounts == 1 else "accounts" }} on {{ name }} →</a>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

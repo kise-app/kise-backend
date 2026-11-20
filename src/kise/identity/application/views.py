@@ -120,3 +120,20 @@ class AdministratorView:
             password_changed_at=admin.password_changed_at,
             credentials_version=admin.credentials_version,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class PlanCard:
+    """One plan as the portal's Plans page shows it."""
+
+    plan: Plan
+    #: Free text for Basic and Pro; always empty for Trial.
+    price: str
+    #: Only for Trial: how long new accounts get it.
+    trial_days: int | None
+    ai_enabled: bool
+    #: Accounts on this plan on record.
+    accounts: int
+    #: Receipt scans and voice notes a month; None is no monthly limit.
+    receipts: int | None = None
+    voice: int | None = None

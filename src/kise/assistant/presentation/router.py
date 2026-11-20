@@ -189,13 +189,26 @@ class AnswerResponse(BaseModel):
         return cls(answer=reply.answer, transcript=reply.transcript)
 
 
+class UsageResponse(BaseModel):
+    """One kind's monthly allowance. ``limit`` null is no monthly limit; 0 is not included."""
+
+    kind: str
+    limit: int | None
+    used: int
+    remaining: int | None
+
+
 class StatusResponse(BaseModel):
     #: The server has a model configured.
     enabled: bool
-    #: This owner's plan includes the assistant (Pro or a running trial). When false, every
-    #: route answers 403 ``upgrade_required``.
+    #: This owner's plan includes typed requests (Pro or a running trial). When false, text and
+    #: typed questions answer 403 ``upgrade_required``.
     allowed: bool
     hourly_limit: int
+    #: Receipt scans and voice notes this month, against the plan's allowance. When one is used
+    #: up, its routes answer 403 ``allowance_used_up`` until ``resets_on``.
+    usage: list[UsageResponse] = []
+    resets_on: str | None = None
     max_audio_bytes: int = MAX_AUDIO_BYTES
     max_image_bytes: int = MAX_IMAGE_BYTES
 
@@ -206,9 +219,21 @@ Assistant = AssistantDep
 
 
 @router.get("/status", response_model=StatusResponse)
-def status(state: AssistantStatusDep) -> StatusResponse:
-    enabled, limit, allowed = state
-    return StatusResponse(enabled=enabled, allowed=allowed, hourly_limit=limit)
+def status(state: AssistantStatusDep, assistant: Assistant) -> StatusResponse:
+    enabled, limit = state
+    service, request = assistant
+    return StatusResponse(
+        enabled=enabled,
+        allowed=request.allowed,
+        hourly_limit=limit,
+        usage=[
+            UsageResponse(
+                kind=item.kind.value, limit=item.limit, used=item.used, remaining=item.remaining
+            )
+            for item in service.usage(request)
+        ],
+        resets_on=service.resets_on().isoformat(),
+    )
 
 
 @router.post("/text", response_model=DraftReplyResponse)

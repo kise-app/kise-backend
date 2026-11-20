@@ -19,7 +19,8 @@ class AssistantUnavailable(ServiceUnavailable):
 
 
 class UpgradeRequired(PermissionDenied):
-    """Voice, receipt scans and questions are Pro features (and the trial's)."""
+    """The plan in force does not include this: typed requests need Trial or Pro, and receipt
+    scans or voice notes need a plan whose monthly allowance for them is not zero."""
 
     code = "upgrade_required"
 
@@ -67,4 +68,19 @@ class MediaTooLarge(ValidationError):
             field="file",
             size=size,
             limit=limit,
+        )
+
+
+class AllowanceUsedUp(PermissionDenied):
+    """This month's receipt scans or voice notes are used up. They come back on the 1st."""
+
+    code = "allowance_used_up"
+
+    def __init__(self, kind: str, limit: int, resets_on: str) -> None:
+        what = "receipt scans" if kind == "receipt" else "voice notes"
+        super().__init__(
+            f"You have used this month's {limit} {what}. They start again on {resets_on}.",
+            kind=kind,
+            limit=limit,
+            resets_on=resets_on,
         )

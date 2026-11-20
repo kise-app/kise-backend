@@ -1,0 +1,81 @@
+/*
+ * Admin portal sidebar: open, collapsed to icons, or (on narrow screens) a drawer.
+ *
+ * State lives on <html>, set by static/admin.js:
+ *   .js                     JavaScript is running (without it the sidebar just stays open)
+ *   [data-sidebar=collapsed] wide screens: a 4rem rail of icons
+ *   [data-drawer=open]       narrow screens: the drawer is showing
+ */
+
+.admin-sidebar {
+  width: 16rem;
+  transition: width 160ms ease, transform 200ms ease;
+}
+.admin-content {
+  transition: padding-left 160ms ease;
+}
+.admin-menu-button,
+.admin-backdrop {
+  display: none;
+}
+.js .admin-menu-button {
+  display: inline-flex;
+}
+
+/* Narrow screens: with JavaScript, the sidebar is a drawer that slides in from the left. */
+@media (max-width: 63.999rem) {
+  .js .admin-sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    z-index: 40;
+    width: min(18rem, 85vw);
+    transform: translateX(-100%);
+    box-shadow: 0 10px 40px rgb(0 0 0 / 0.18);
+  }
+  .js[data-drawer="open"] .admin-sidebar {
+    transform: translateX(0);
+  }
+  .js[data-drawer="open"] .admin-backdrop {
+    display: block;
+  }
+  .js[data-drawer="open"] body {
+    overflow: hidden;
+  }
+}
+
+/* Wide screens: fixed beside the page; collapsed, a rail of icons with the labels hidden. */
+@media (min-width: 64rem) {
+  .admin-sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+  }
+  .admin-content {
+    padding-left: 16rem;
+  }
+  [data-sidebar="collapsed"] .admin-sidebar {
+    width: 4.5rem;
+  }
+  [data-sidebar="collapsed"] .admin-content {
+    padding-left: 4.5rem;
+  }
+  [data-sidebar="collapsed"] .admin-label {
+    display: none;
+  }
+  [data-sidebar="collapsed"] .admin-link {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  [data-sidebar="collapsed"] .admin-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar,
+  .admin-content {
+    transition: none;
+  }
+}

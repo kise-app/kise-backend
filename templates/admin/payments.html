@@ -1,9 +1,9 @@
 {% extends "admin/base.html" %}
-{% from "admin/_macros.html" import notice, plan_badge %}
+{% from "admin/_macros.html" import notice %}
 {% block title %}Payments{% endblock %}
 {% block content %}
 <h1 class="text-2xl font-semibold">Payments</h1>
-<p class="mb-6 max-w-3xl text-ink-muted">What the app shows someone who wants Pro. They pay into one of these accounts and send the screenshot, quoting their email. Then find them under Accounts and move them to Pro.</p>
+<p class="mb-6 max-w-3xl text-ink-muted">What the app shows someone who wants Pro. They pay into one of these accounts and send the screenshot, quoting their email. Then find them under Accounts and move them to Pro. Prices are set on each plan under <a href="{{ portal }}/plans" class="text-forest hover:underline">Plans</a>.</p>
 {% if saved == "payments" %}{{ notice("Saved. The app shows these details now.") }}{% endif %}
 {% if error %}{{ notice(error, "error") }}{% endif %}
 {% if not ready and not error %}
@@ -34,25 +34,6 @@
                  class="w-full rounded-lg border border-line bg-white px-3 py-2 font-mono focus:border-forest focus:outline-none"></label>
       </fieldset>
       {% endfor %}
-    </div>
-  </section>
-
-  <section class="rounded-2xl border border-line bg-card p-6">
-    <h2 class="text-lg font-semibold">Prices</h2>
-    <p class="mt-1 text-sm text-ink-muted">Shown in the app beside each plan. Write it how you would say it; leave one empty to show no price for it. The trial has no price: set its length on the Overview page.</p>
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      <div>
-        <label for="basic_price" class="mb-1 flex items-center gap-2 text-sm font-medium">{{ plan_badge("basic") }} price</label>
-        <input id="basic_price" name="basic_price" value="{{ form.basic_price }}" maxlength="120" placeholder="e.g. 100 birr a month"
-               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
-        <p class="mt-1 text-xs text-ink-muted">Everything except the assistant.</p>
-      </div>
-      <div>
-        <label for="pro_price" class="mb-1 flex items-center gap-2 text-sm font-medium">{{ plan_badge("pro") }} price</label>
-        <input id="pro_price" name="pro_price" value="{{ form.pro_price }}" maxlength="120" placeholder="e.g. 300 birr a month, or 3,000 birr a year"
-               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
-        <p class="mt-1 text-xs text-ink-muted">Everything, including voice, receipts and questions.</p>
-      </div>
     </div>
   </section>
 

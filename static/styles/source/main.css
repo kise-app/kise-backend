@@ -18,6 +18,7 @@
 
 @import "../custom/components.css";
 @import "../custom/landing.css";
+@import "../custom/admin.css";
 
 @theme {
   /* Type. Plus Jakarta Sans for Latin, Noto Sans Ethiopic falls in for Amharic glyphs, and one

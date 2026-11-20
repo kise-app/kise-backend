@@ -1,11 +1,11 @@
 {#-
   Admin portal layout. Served by kise.platform.admin.router; styled by the same Tailwind bundle as
-  the landing page (static/styles/app.css), in its light "cream" variant (.light re-declares the
-  brand tokens). Context: style_path, csrf_token, request_path, admin (absent on the sign-in page).
+  the landing page (static/styles/app.css, plus custom/admin.css for the sidebar), in its light
+  "cream" variant (.light re-declares the brand tokens). Context: style_path, csrf_token,
+  request_path, admin (absent on the sign-in page).
 
-  Signed in, the pages sit beside a sidebar: a fixed column on wide screens, a top bar with a
-  scrolling row of links on narrow ones. No JavaScript (the portal's CSP allows none), so nothing
-  needs to open or close.
+  Signed in, the pages sit beside a sidebar. The hamburger button (static/admin.js) collapses it to
+  icons on wide screens and opens it as a drawer on narrow ones. Without JavaScript it stays open.
 -#}
 {% from "admin/_macros.html" import icon %}
 <!doctype html>
@@ -17,69 +17,78 @@
   <title>{% block title %}Admin{% endblock %} · Kise admin</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="{{ style_path }}/app.css?v={{ style_version }}">
+  {% if admin %}<script src="/static/admin.js?v={{ style_version }}"></script>{% endif %}
 </head>
 <body class="light min-h-screen bg-page bg-none text-ink antialiased accent-forest">
   {% if admin %}
   {% set links = [
     (portal, "Overview", "overview"),
     (portal ~ "/accounts", "Accounts", "accounts"),
+    (portal ~ "/plans", "Plans", "plans"),
     (portal ~ "/payments", "Payments", "payments"),
     (portal ~ "/admins", "Admins", "admins"),
   ] %}
   <a href="#content" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-card focus:px-3 focus:py-2 focus:shadow-card">Skip to content</a>
-  <aside class="border-b border-line bg-card lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col lg:border-b-0 lg:border-r" data-testid="sidebar">
-    <div class="flex items-center justify-between px-5 py-4 lg:py-6">
-      <a href="{{ portal }}" class="flex items-center gap-2.5 font-semibold">
-        <img src="/static/coin.svg" alt="" width="32" height="32">
-        <span class="text-lg">Kise <span class="font-normal text-ink-muted">admin</span></span>
+
+  <div class="admin-backdrop fixed inset-0 z-30 bg-ink/30" data-drawer-close aria-hidden="true"></div>
+
+  <aside id="admin-sidebar" class="admin-sidebar flex flex-col overflow-y-auto border-b border-line bg-card lg:border-b-0 lg:border-r" data-testid="sidebar">
+    <div class="admin-brand flex items-center gap-2.5 px-5 py-5">
+      <a href="{{ portal }}" class="flex items-center gap-2.5 font-semibold" title="Kise admin">
+        <img src="/static/coin.svg" alt="" width="32" height="32" class="shrink-0">
+        <span class="admin-label text-lg">Kise <span class="font-normal text-ink-muted">admin</span></span>
       </a>
-      {# Narrow screens: the account actions live up here, beside the logo. #}
-      <div class="flex items-center gap-1 lg:hidden">
-        <a href="{{ portal }}/password" class="rounded-lg p-2 text-ink-muted hover:bg-page hover:text-ink" title="Your password" aria-label="Your password">{{ icon("password") }}</a>
-        <form method="post" action="{{ portal }}/logout">
-          <input type="hidden" name="csrf" value="{{ csrf_token }}">
-          <button type="submit" class="rounded-lg p-2 text-ink-muted hover:bg-page hover:text-ink" title="Sign out" aria-label="Sign out">{{ icon("signout") }}</button>
-        </form>
-      </div>
     </div>
 
-    <nav aria-label="Admin" class="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0">
-      <p class="hidden px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted lg:block">Manage</p>
+    <nav aria-label="Admin" class="flex flex-1 flex-col gap-1 px-3">
+      <p class="admin-label px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">Manage</p>
       {% for href, label, name in links %}
       {% set current = request_path == href or (href != portal and request_path.startswith(href)) %}
-      <a href="{{ href }}"
-         class="flex shrink-0 items-center gap-3 rounded-lg px-3 py-2 text-sm {{ 'bg-forest-50 font-semibold text-forest' if current else 'text-ink-muted hover:bg-page hover:text-ink' }}"
+      <a href="{{ href }}" title="{{ label }}"
+         class="admin-link flex items-center gap-3 rounded-lg px-3 py-2 text-sm {{ 'bg-forest-50 font-semibold text-forest' if current else 'text-ink-muted hover:bg-page hover:text-ink' }}"
          {% if current %}aria-current="page"{% endif %}>
-        {{ icon(name) }}<span>{{ label }}</span>
+        {{ icon(name) }}<span class="admin-label">{{ label }}</span>
       </a>
       {% endfor %}
     </nav>
 
-    {# Wide screens: who is signed in, at the foot of the sidebar. #}
-    <div class="hidden border-t border-line p-4 lg:block">
-      <p class="text-xs text-ink-muted">Signed in as</p>
-      <p class="truncate text-sm font-medium" title="{{ admin.email }}">{{ admin.email }}</p>
-      <div class="mt-3 flex flex-col gap-1">
-        {% set on_password = request_path == portal ~ "/password" %}
-        <a href="{{ portal }}/password"
-           class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm {{ 'bg-forest-50 font-semibold text-forest' if on_password else 'text-ink-muted hover:bg-page hover:text-ink' }}"
-           {% if on_password %}aria-current="page"{% endif %}>
-          {{ icon("password") }}<span>Your password</span>
-        </a>
-        <form method="post" action="{{ portal }}/logout">
-          <input type="hidden" name="csrf" value="{{ csrf_token }}">
-          <button type="submit" class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-ink-muted hover:bg-page hover:text-ink">
-            {{ icon("signout") }}<span>Sign out</span>
-          </button>
-        </form>
+    <div class="mt-6 border-t border-line p-3">
+      <div class="admin-label px-3 pb-2">
+        <p class="text-xs text-ink-muted">Signed in as</p>
+        <p class="truncate text-sm font-medium" title="{{ admin.email }}">{{ admin.email }}</p>
       </div>
+      {% set on_password = request_path == portal ~ "/password" %}
+      <a href="{{ portal }}/password" title="Your password"
+         class="admin-link flex items-center gap-3 rounded-lg px-3 py-2 text-sm {{ 'bg-forest-50 font-semibold text-forest' if on_password else 'text-ink-muted hover:bg-page hover:text-ink' }}"
+         {% if on_password %}aria-current="page"{% endif %}>
+        {{ icon("password") }}<span class="admin-label">Your password</span>
+      </a>
+      <form method="post" action="{{ portal }}/logout">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button type="submit" title="Sign out" class="admin-link flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-ink-muted hover:bg-page hover:text-ink">
+          {{ icon("signout") }}<span class="admin-label">Sign out</span>
+        </button>
+      </form>
     </div>
   </aside>
+
+  <div class="admin-content">
+    <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-page/90 px-4 py-3 backdrop-blur">
+      <button type="button" class="admin-menu-button items-center justify-center rounded-lg p-2 text-ink-muted hover:bg-card hover:text-ink"
+              data-sidebar-toggle aria-controls="admin-sidebar" aria-expanded="true" aria-label="Collapse the menu" data-testid="menu-button">
+        {{ icon("menu", 22) }}
+      </button>
+      <a href="{{ portal }}" class="flex items-center gap-2 font-semibold lg:hidden">
+        <img src="/static/coin.svg" alt="" width="24" height="24">
+        <span>Kise <span class="font-normal text-ink-muted">admin</span></span>
+      </a>
+    </header>
   {% endif %}
-  <div class="{{ 'lg:pl-64' if admin else '' }}">
-    <main id="content" class="mx-auto max-w-6xl px-6 py-8">
-      {% block content %}{% endblock %}
-    </main>
+  <main id="content" class="mx-auto max-w-6xl px-6 py-8">
+    {% block content %}{% endblock %}
+  </main>
+  {% if admin %}
   </div>
+  {% endif %}
 </body>
 </html>

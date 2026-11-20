@@ -14,9 +14,11 @@ database tables. These classes know nothing about SQLAlchemy; mappers translate 
 from kise.identity.domain.entities import Administrator, LinkedIdentity, Owner
 from kise.identity.domain.value_objects import (
     AI_PLANS,
+    DEFAULT_ALLOWANCES,
     MAX_DISPLAY_NAME_LENGTH,
     MAX_EMAIL_LENGTH,
     MAX_GRANT_DAYS,
+    MAX_MONTHLY_ALLOWANCE,
     MAX_PAYMENT_ACCOUNTS,
     MAX_TRIAL_DAYS,
     MIN_ADMIN_PASSWORD_LENGTH,
@@ -25,6 +27,7 @@ from kise.identity.domain.value_objects import (
     PaymentAccount,
     PaymentInstructions,
     Plan,
+    PlanAllowance,
     PlanPolicy,
     Preferences,
     SocialProvider,
@@ -35,9 +38,11 @@ from kise.identity.domain.value_objects import (
 
 __all__ = [
     "AI_PLANS",
+    "DEFAULT_ALLOWANCES",
     "MAX_DISPLAY_NAME_LENGTH",
     "MAX_EMAIL_LENGTH",
     "MAX_GRANT_DAYS",
+    "MAX_MONTHLY_ALLOWANCE",
     "MAX_PAYMENT_ACCOUNTS",
     "MAX_TRIAL_DAYS",
     "MIN_ADMIN_PASSWORD_LENGTH",
@@ -49,6 +54,7 @@ __all__ = [
     "PaymentAccount",
     "PaymentInstructions",
     "Plan",
+    "PlanAllowance",
     "PlanPolicy",
     "Preferences",
     "SocialProvider",

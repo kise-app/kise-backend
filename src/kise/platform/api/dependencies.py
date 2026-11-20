@@ -26,6 +26,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from kise.assistant.application.service import AssistantRequest, AssistantService
+from kise.assistant.domain.usage import Allowance
 from kise.identity.application.views import OwnerProfile
 from kise.identity.domain.errors import InvalidToken
 from kise.platform.assistant_bridge import ExpenseTrackingSpending
@@ -105,27 +106,28 @@ def get_assistant(
         spending=ExpenseTrackingSpending(services),
         limiter=container.rate_limiter,
         clock=container.clock,
+        usage=services.uow.assistant_usage,
+        uow=services.uow,
     )
+    # What the plan in force includes: an ended trial is Basic, and gets Basic's allowance.
+    plan_allowance = services.plans.allowance_for(owner.effective_plan)
     return service, AssistantRequest(
         owner_id=owner.owner_id,
         language=owner.language.value,
         calendar=owner.calendar,
         currency=owner.currency,
         allowed=owner.ai_enabled,
+        allowance=Allowance(receipts=plan_allowance.receipts, voice=plan_allowance.voice),
     )
 
 
 AssistantDep = Annotated[tuple[AssistantService, AssistantRequest], Depends(get_assistant)]
 
 
-def get_assistant_status(request: Request, owner: CurrentOwner) -> tuple[bool, int, bool]:
-    """(switched on for this server, hourly allowance, this owner's plan includes it)."""
+def get_assistant_status(request: Request) -> tuple[bool, int]:
+    """(switched on for this server, hourly allowance)."""
     container: Container = request.app.state.container
-    return (
-        container.assistant_enabled,
-        container.settings.assistant_hourly_limit,
-        owner.ai_enabled,
-    )
+    return container.assistant_enabled, container.settings.assistant_hourly_limit
 
 
-AssistantStatusDep = Annotated[tuple[bool, int, bool], Depends(get_assistant_status)]
+AssistantStatusDep = Annotated[tuple[bool, int], Depends(get_assistant_status)]

@@ -14,6 +14,8 @@ from kise.identity.domain.models import (
     Owner,
     PaymentAccount,
     PaymentInstructions,
+    Plan,
+    PlanAllowance,
     PlanPolicy,
     SocialProvider,
 )
@@ -138,14 +140,29 @@ class SqlAlchemyPlanSettingsRepository:
 
     def get(self) -> PlanPolicy:
         row = self._session.get(PlanSettingsModel, 1)
-        return PlanPolicy(trial_days=row.trial_days) if row is not None else PlanPolicy()
+        if row is None:
+            return PlanPolicy()
+        stored = row.allowances or {}
+        return PlanPolicy(
+            trial_days=row.trial_days,
+            allowances={
+                plan: PlanAllowance(receipts=limits.get("receipts"), voice=limits.get("voice"))
+                for plan, limits in stored.items()
+                if plan in {p.value for p in Plan}
+            },
+        )
 
     def save(self, policy: PlanPolicy) -> None:
         row = self._session.get(PlanSettingsModel, 1)
         if row is None:
-            self._session.add(PlanSettingsModel(id=1, trial_days=policy.trial_days))
-        else:
-            row.trial_days = policy.trial_days
+            row = PlanSettingsModel(id=1)
+            self._session.add(row)
+        row.trial_days = policy.trial_days
+        # A new dict, so SQLAlchemy sees the JSON column change.
+        row.allowances = {
+            plan.value: {"receipts": allowance.receipts, "voice": allowance.voice}
+            for plan, allowance in policy.allowances.items()
+        }
 
 
 class SqlAlchemyAdministratorRepository(TrackingRepository[Administrator]):

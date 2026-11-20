@@ -109,3 +109,34 @@ def test_days_left_counts_a_part_day_as_a_day():
     trial = Subscription.trial_until(NOW + timedelta(days=14))
     assert trial.days_left(NOW + timedelta(seconds=30)) == 14
     assert trial.days_left(NOW + timedelta(days=13, hours=23)) == 1
+
+
+# -- monthly allowances -----------------------------------------------------------
+
+
+def test_allowances_default_to_trial_and_pro_unlimited_and_basic_none():
+    from kise.identity.domain.models import PlanAllowance
+
+    policy = PlanPolicy()
+    assert policy.allowance_for("trial") == PlanAllowance()
+    assert policy.allowance_for("basic") == PlanAllowance(receipts=0, voice=0)
+    assert policy.allowance_for(Plan.PRO) == PlanAllowance(receipts=None, voice=None)
+
+
+def test_changing_one_plans_allowance_keeps_the_rest():
+    from kise.identity.domain.models import PlanAllowance
+
+    policy = PlanPolicy(trial_days=7).with_allowance("pro", PlanAllowance(receipts=50, voice=20))
+    assert policy.allowance_for("pro") == PlanAllowance(receipts=50, voice=20)
+    assert policy.allowance_for("basic") == PlanAllowance(receipts=0, voice=0)
+    assert policy.trial_days == 7
+    assert policy.with_trial_days(3).allowance_for("pro").receipts == 50
+
+
+@pytest.mark.parametrize("value", [-1, 10_001, 2.5, True, "5"])
+def test_an_allowance_is_a_whole_number_in_range_or_none(value):
+    from kise.identity.domain.models import PlanAllowance
+    from kise.shared_kernel.domain.errors import ValidationError
+
+    with pytest.raises(ValidationError):
+        PlanAllowance(receipts=value)

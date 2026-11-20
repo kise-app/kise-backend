@@ -5,7 +5,8 @@
 ``SpendingContext``  the Owner's categories and units, and facts about their months. Implemented
                      in the composition root over the Expense Tracking services, so this context
                      never imports another one.
-``RateLimiter``      an allowance per Owner, because every call costs money.
+``RateLimiter``      an hourly allowance per Owner, because every call costs money.
+``UsageRepository``  receipt scans and voice notes used per month, against the plan's allowance.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from datetime import date
 from typing import Any, Protocol
 
 from kise.assistant.domain.drafts import Catalog
+from kise.assistant.domain.usage import UsageKind
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.identifiers import OwnerId
 
@@ -65,3 +67,16 @@ class RateLimiter(ABC):
     @abstractmethod
     def take(self, key: str) -> None:
         """Use one request of ``key``'s allowance, or raise ``AssistantRateLimited``."""
+
+
+class UsageRepository(ABC):
+    """Receipt scans and voice notes used, per owner per month. Never commits: the service does,
+    through the Unit of Work."""
+
+    @abstractmethod
+    def used(self, owner_id: OwnerId, kind: UsageKind, period: str) -> int:
+        """How many of ``kind`` this owner has used in ``period`` (``YYYY-MM``)."""
+
+    @abstractmethod
+    def add_one(self, owner_id: OwnerId, kind: UsageKind, period: str) -> None:
+        """Count one more of ``kind`` in ``period``."""

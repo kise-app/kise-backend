@@ -21,6 +21,7 @@ from kise.assistant.application.ports import (
     RateLimiter,
     SpendingContext,
     TextPart,
+    UsageRepository,
 )
 from kise.assistant.application.prompts import (
     extraction_instructions,
@@ -37,12 +38,20 @@ from kise.assistant.domain.drafts import (
     build_payment_drafts,
 )
 from kise.assistant.domain.errors import (
+    AllowanceUsedUp,
     AssistantFailed,
     MediaTooLarge,
     UnsupportedMedia,
     UpgradeRequired,
 )
-from kise.shared_kernel.application.ports import Clock
+from kise.assistant.domain.usage import (
+    Allowance,
+    UsageKind,
+    UsageSummary,
+    month_of,
+    next_month_start,
+)
+from kise.shared_kernel.application.ports import Clock, UnitOfWork
 from kise.shared_kernel.domain.calendar.calendar_kind import CalendarKind
 from kise.shared_kernel.domain.errors import ValidationError
 from kise.shared_kernel.domain.identifiers import OwnerId
@@ -88,8 +97,10 @@ class AssistantRequest:
     calendar: CalendarKind = CalendarKind.ETHIOPIAN
     currency: str = "ETB"
     client_today: date | None = None
-    #: Whether the owner's plan includes the assistant (Pro, or a running trial).
+    #: Whether the owner's plan includes typed requests (Pro, or a running trial).
     allowed: bool = True
+    #: Receipt scans and voice notes the plan in force includes a month.
+    allowance: Allowance = field(default_factory=Allowance)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +132,12 @@ class AssistantService:
         spending: SpendingContext,
         limiter: RateLimiter,
         clock: Clock,
+        usage: UsageRepository | None = None,
+        uow: UnitOfWork | None = None,
     ) -> None:
+        # Both or neither: without them (tests, a server with no database) nothing is counted.
+        self._usage = usage
+        self._uow = uow
         self._model = model
         self._spending = spending
         self._limiter = limiter
@@ -130,10 +146,48 @@ class AssistantService:
     # -- helpers --------------------------------------------------------
     @staticmethod
     def _entitled(request: AssistantRequest) -> None:
-        """Checked before anything else — before the allowance, before reading any file — so a
-        Basic account never costs a model call."""
+        """Typed requests. Checked before anything else — before the allowance, before reading
+        any file — so a Basic account never costs a model call."""
         if not request.allowed:
             raise UpgradeRequired
+
+    def _period(self) -> str:
+        return month_of(self._clock.today())
+
+    def _check_allowance(self, request: AssistantRequest, kind: UsageKind) -> None:
+        """Receipt scans and voice notes: the plan must include some, and some must be left.
+        Checked first, like ``_entitled``, so a used-up allowance costs nothing."""
+        if not request.allowance.includes(kind):
+            raise UpgradeRequired
+        if self._usage is None or request.allowance.limit(kind) is None:
+            return
+        used = self._usage.used(request.owner_id, kind, self._period())
+        if not request.allowance.has_room(kind, used):
+            resets = next_month_start(self._clock.today())
+            raise AllowanceUsedUp(kind.value, request.allowance.limit(kind), resets.isoformat())
+
+    def _count(self, request: AssistantRequest, kind: UsageKind) -> None:
+        """One more used — only once the model has answered, so a failed request is free.
+        Committed straight away: the count stands even if the drafts are never saved."""
+        if self._usage is None or self._uow is None:
+            return
+        self._usage.add_one(request.owner_id, kind, self._period())
+        self._uow.commit()
+
+    def usage(self, request: AssistantRequest) -> tuple[UsageSummary, ...]:
+        """This month's receipt scans and voice notes: the allowance and how many are used."""
+        period = self._period()
+        return tuple(
+            UsageSummary(
+                kind=kind,
+                limit=request.allowance.limit(kind),
+                used=self._usage.used(request.owner_id, kind, period) if self._usage else 0,
+            )
+            for kind in UsageKind
+        )
+
+    def resets_on(self) -> date:
+        return next_month_start(self._clock.today())
 
     def _today(self, request: AssistantRequest) -> date:
         """The person's today. The server runs on UTC and Ethiopia is UTC+3, so the client's date
@@ -145,7 +199,8 @@ class AssistantService:
         return server
 
     def _extract(self, request: AssistantRequest, parts: list[Part], source: str) -> DraftReply:
-        self._entitled(request)
+        # Callers check what the plan allows first: _entitled for text, _check_allowance for
+        # voice and receipts.
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
         catalog = self._spending.catalog(request.owner_id, request.calendar, today)
@@ -209,22 +264,26 @@ class AssistantService:
     def read_voice(
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> DraftReply:
-        self._entitled(request)
+        self._check_allowance(request, UsageKind.VOICE)
         audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
-        return self._extract(request, [audio], "voice")
+        reply = self._extract(request, [audio], "voice")
+        self._count(request, UsageKind.VOICE)
+        return reply
 
     def read_receipt(
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> DraftReply:
-        self._entitled(request)
+        self._check_allowance(request, UsageKind.RECEIPT)
         image = self._checked_media(data, content_type, IMAGE_TYPES, MAX_IMAGE_BYTES)
-        return self._extract(request, [image], "receipt")
+        reply = self._extract(request, [image], "receipt")
+        self._count(request, UsageKind.RECEIPT)
+        return reply
 
     def ask_voice(
         self, request: AssistantRequest, data: bytes, content_type: str | None
     ) -> AnswerReply:
-        """A question asked out loud: transcribed and answered in one call."""
-        self._entitled(request)
+        """A question asked out loud: transcribed and answered in one call. Counts as voice."""
+        self._check_allowance(request, UsageKind.VOICE)
         audio = self._checked_media(data, content_type, AUDIO_TYPES, MAX_AUDIO_BYTES)
         self._limiter.take(str(request.owner_id))
         today = self._today(request)
@@ -238,6 +297,7 @@ class AssistantService:
         answer = answer.strip()
         if not answer:
             raise AssistantFailed("empty_answer")
+        self._count(request, UsageKind.VOICE)
         return AnswerReply(
             answer=answer[:MAX_ANSWER_LENGTH],
             facts=facts,

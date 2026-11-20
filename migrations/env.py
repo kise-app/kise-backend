@@ -16,6 +16,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+import kise.assistant.infrastructure.persistence.models  # noqa: F401,E402
+
 # Importing for the side effect of registering tables on Base.metadata.
 import kise.expense_tracking.infrastructure.persistence.models  # noqa: F401,E402
 import kise.identity.infrastructure.persistence.models  # noqa: F401,E402

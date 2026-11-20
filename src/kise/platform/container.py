@@ -287,7 +287,9 @@ class Container:
             uow=uow,
             admin=admin,
             administrators=administrators,
-            plans=PlanService(payment_settings=uow.payment_settings),
+            plans=PlanService(
+                payment_settings=uow.payment_settings, plan_settings=uow.plan_settings
+            ),
             owners=owners,
             categories=categories,
             expenses=expenses,

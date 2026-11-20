@@ -82,11 +82,6 @@ class ChangePlanCommand:
     days: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class SetTrialLengthCommand:
-    trial_days: int
-
-
 # -- administrators -----------------------------------------------------------
 
 
@@ -128,12 +123,26 @@ class RemoveAdministratorCommand:
 
 @dataclass(frozen=True, slots=True)
 class SetPaymentInstructionsCommand:
-    """How to pay for Pro. ``accounts`` are (bank, account name, account number) triples."""
+    """Where to pay and how to send the screenshot. ``accounts`` are (bank, account name, account
+    number) triples. Prices are set per plan, with ``UpdatePlanCommand``."""
 
     accounts: tuple[tuple[str, str, str], ...] = ()
-    basic_price: str = ""
-    pro_price: str = ""
     telegram: str = ""
     phone: str = ""
     email: str = ""
     note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class UpdatePlanCommand:
+    """Everything a plan card edits, saved together or not at all.
+
+    ``trial_days`` only for Trial; ``price`` only for Basic and Pro. ``receipts`` and ``voice``
+    are a month's allowance; None is no monthly limit.
+    """
+
+    plan: str
+    receipts: int | None
+    voice: int | None
+    price: str | None = None
+    trial_days: int | None = None
