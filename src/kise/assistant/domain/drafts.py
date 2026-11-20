@@ -375,8 +375,12 @@ def build_payment_draft(raw: Any, catalog: Catalog, today: date) -> PaymentDraft
     warnings: list[str] = []
     if commitment.is_settled:
         warnings.append("already_paid")
-    # No amount, or nonsense, means "what was committed" — the usual case for rent.
-    amount_minor = _amount_minor(raw.get("amount")) or commitment.amount_minor
+    # A fixed monthly expense is paid at the cost set up on it. A different amount heard (often a
+    # mishearing) is flagged so the person can check, never saved in its place.
+    amount_minor = commitment.amount_minor
+    heard = _amount_minor(raw.get("amount"))
+    if heard is not None and heard != amount_minor:
+        warnings.append("amount_differs")
     paid_on, date_warnings = resolve_date(raw, today)
     warnings.extend(date_warnings)
     return PaymentDraft(

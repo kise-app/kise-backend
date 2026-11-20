@@ -249,6 +249,18 @@ def test_a_payment_must_name_a_real_commitment_and_defaults_to_its_amount():
     assert payment.paid_on.gregorian == date(2026, 9, 2)
 
 
+def test_a_payment_is_always_the_fixed_cost_and_a_different_amount_is_flagged():
+    (heard_other,) = build_payment_drafts(
+        [{"commitment_id": "fx-1", "amount": 8500, "date_kind": "today"}], WITH_RENT, TODAY
+    )
+    assert heard_other.amount_minor == 800000, "the set cost, not what was heard"
+    assert "amount_differs" in heard_other.warnings
+    (same,) = build_payment_drafts(
+        [{"commitment_id": "fx-1", "amount": 8000, "date_kind": "today"}], WITH_RENT, TODAY
+    )
+    assert same.amount_minor == 800000 and "amount_differs" not in same.warnings
+
+
 def test_paying_an_already_paid_month_is_flagged():
     paid = Catalog(
         categories=CATALOG.categories,

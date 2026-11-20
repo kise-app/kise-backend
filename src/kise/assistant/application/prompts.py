@@ -105,7 +105,8 @@ def extraction_schema(catalog: Catalog) -> dict[str, Any]:
             },
             "amount": {
                 "type": "number",
-                "description": "What was paid, in major units. 0 if they did not say.",
+                "description": "The amount they said they paid, in major units, only to check it "
+                "against the fixed cost (which is what gets recorded). 0 if they did not say.",
             },
             "date_kind": {"type": "string", "enum": list(DATE_KINDS)},
             "days_ago": {"type": "integer"},
