@@ -105,7 +105,8 @@ class PaymentSettingsModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # [{"bank": ..., "holder": ..., "number": ...}, ...]
     accounts: Mapped[list] = mapped_column(JSON, default=list)
-    price: Mapped[str] = mapped_column(String(120), default="")
+    basic_price: Mapped[str] = mapped_column(String(120), default="")
+    pro_price: Mapped[str] = mapped_column(String(120), default="")
     telegram: Mapped[str] = mapped_column(String(32), default="")
     phone: Mapped[str] = mapped_column(String(32), default="")
     email: Mapped[str] = mapped_column(String(254), default="")

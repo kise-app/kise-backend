@@ -18,7 +18,7 @@ from kise.identity.application.commands import (
     UpdatePreferencesCommand,
 )
 from kise.identity.application.views import AuthenticatedOwner, OwnerProfile
-from kise.identity.domain.models import PaymentInstructions
+from kise.identity.domain.models import AI_PLANS, PaymentInstructions, Plan
 
 
 class RegisterRequest(BaseModel):
@@ -179,6 +179,14 @@ class PaymentAccountResponse(BaseModel):
     number: str
 
 
+class PlanPriceResponse(BaseModel):
+    """One plan someone can pay for, and what it costs (free text; empty when not set)."""
+
+    plan: str
+    price: str
+    ai_enabled: bool
+
+
 class PaymentInstructionsResponse(BaseModel):
     """How to pay for Pro by hand: pay into an account, send the screenshot, an admin upgrades.
 
@@ -189,7 +197,8 @@ class PaymentInstructionsResponse(BaseModel):
 
     ready: bool
     accounts: list[PaymentAccountResponse]
-    price: str
+    #: Basic, then Pro, each with its price.
+    plans: list[PlanPriceResponse]
     telegram: str
     telegram_url: str | None
     phone: str
@@ -207,7 +216,12 @@ class PaymentInstructionsResponse(BaseModel):
                 PaymentAccountResponse(bank=a.bank, holder=a.holder, number=a.number)
                 for a in instructions.accounts
             ],
-            price=instructions.price,
+            plans=[
+                PlanPriceResponse(
+                    plan=plan.value, price=instructions.price_of(plan), ai_enabled=plan in AI_PLANS
+                )
+                for plan in (Plan.BASIC, Plan.PRO)
+            ],
             telegram=instructions.telegram,
             telegram_url=instructions.telegram_url,
             phone=instructions.phone,

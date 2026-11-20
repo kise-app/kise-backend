@@ -46,6 +46,11 @@ def build_engine(database_url: str, *, echo: bool = False) -> Engine:
     engine_kwargs: dict[str, object] = {"echo": echo, "future": True, "connect_args": connect_args}
     if is_memory:
         engine_kwargs["poolclass"] = StaticPool
+    if not is_sqlite:
+        # Test each pooled connection before handing it out. A database restart, a reset or a
+        # dropped idle connection otherwise surfaces as a 500 on whichever request picks up the
+        # dead connection.
+        engine_kwargs["pool_pre_ping"] = True
     engine = create_engine(database_url, **engine_kwargs)
     if is_sqlite:
         # SQLite ignores foreign keys unless asked, which would silently defeat the

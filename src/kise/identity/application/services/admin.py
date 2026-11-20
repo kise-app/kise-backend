@@ -109,7 +109,8 @@ class AccountAdministrationService:
                 PaymentAccount(bank=bank, holder=holder, number=number)
                 for bank, holder, number in command.accounts
             ),
-            price=command.price,
+            basic_price=command.basic_price,
+            pro_price=command.pro_price,
             telegram=command.telegram,
             phone=command.phone,
             email=command.email,

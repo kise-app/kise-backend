@@ -345,8 +345,10 @@ class PaymentInstructions:
     """
 
     accounts: tuple[PaymentAccount, ...] = ()
-    #: Free text, e.g. "300 birr a month or 3,000 birr a year".
-    price: str = ""
+    #: What each paid plan costs, as free text ("150 birr a month", "1,500 birr a year"). Empty
+    #: means no price is shown for that plan. Trial has no price: an admin sets its length.
+    basic_price: str = ""
+    pro_price: str = ""
     telegram: str = ""
     phone: str = ""
     email: str = ""
@@ -362,9 +364,10 @@ class PaymentInstructions:
         if not all(isinstance(account, PaymentAccount) for account in accounts):
             raise ValidationError("accounts must be PaymentAccount values", field="accounts")
         object.__setattr__(self, "accounts", accounts)
-        object.__setattr__(
-            self, "price", _text(self.price, field="price", label="Price", limit=120)
-        )
+        for field, label in (("basic_price", "Basic price"), ("pro_price", "Pro price")):
+            object.__setattr__(
+                self, field, _text(getattr(self, field), field=field, label=label, limit=120)
+            )
         object.__setattr__(self, "telegram", clean_telegram_username(self.telegram))
         object.__setattr__(self, "phone", clean_phone(self.phone))
         object.__setattr__(self, "email", str(EmailAddress(self.email)) if self.email else "")
@@ -373,6 +376,10 @@ class PaymentInstructions:
     @property
     def ready(self) -> bool:
         return bool(self.accounts) and bool(self.telegram or self.phone or self.email)
+
+    def price_of(self, plan: Plan | str) -> str:
+        """The price shown for ``plan``; empty for Trial, or a plan without one."""
+        return {Plan.BASIC: self.basic_price, Plan.PRO: self.pro_price}.get(Plan.parse(plan), "")
 
     @property
     def telegram_url(self) -> str | None:

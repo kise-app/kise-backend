@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% from "admin/_macros.html" import notice %}
+{% from "admin/_macros.html" import notice, plan_badge %}
 {% block title %}Payments{% endblock %}
 {% block content %}
 <h1 class="text-2xl font-semibold">Payments</h1>
@@ -38,13 +38,27 @@
   </section>
 
   <section class="rounded-2xl border border-line bg-card p-6">
-    <h2 class="text-lg font-semibold">Price and how to reach you</h2>
+    <h2 class="text-lg font-semibold">Prices</h2>
+    <p class="mt-1 text-sm text-ink-muted">Shown in the app beside each plan. Write it how you would say it; leave one empty to show no price for it. The trial has no price: set its length on the Overview page.</p>
     <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      <div class="sm:col-span-2">
-        <label for="price" class="mb-1 block text-sm font-medium">Price</label>
-        <input id="price" name="price" value="{{ form.price }}" maxlength="120" placeholder="e.g. 300 birr a month, or 3,000 birr a year"
+      <div>
+        <label for="basic_price" class="mb-1 flex items-center gap-2 text-sm font-medium">{{ plan_badge("basic") }} price</label>
+        <input id="basic_price" name="basic_price" value="{{ form.basic_price }}" maxlength="120" placeholder="e.g. 100 birr a month"
                class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+        <p class="mt-1 text-xs text-ink-muted">Everything except the assistant.</p>
       </div>
+      <div>
+        <label for="pro_price" class="mb-1 flex items-center gap-2 text-sm font-medium">{{ plan_badge("pro") }} price</label>
+        <input id="pro_price" name="pro_price" value="{{ form.pro_price }}" maxlength="120" placeholder="e.g. 300 birr a month, or 3,000 birr a year"
+               class="w-full rounded-lg border border-line bg-white px-3 py-2 focus:border-forest focus:outline-none">
+        <p class="mt-1 text-xs text-ink-muted">Everything, including voice, receipts and questions.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="rounded-2xl border border-line bg-card p-6">
+    <h2 class="text-lg font-semibold">How to reach you</h2>
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
       <div>
         <label for="telegram" class="mb-1 block text-sm font-medium">Telegram <span class="font-normal text-ink-muted">(where to send the screenshot)</span></label>
         <input id="telegram" name="telegram" value="{{ form.telegram }}" maxlength="60" placeholder="@kise_support"

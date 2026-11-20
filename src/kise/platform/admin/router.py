@@ -581,7 +581,8 @@ def _payments_page(
 
 def _form_of(instructions: PaymentInstructions) -> dict[str, str]:
     return {
-        "price": instructions.price,
+        "basic_price": instructions.basic_price,
+        "pro_price": instructions.pro_price,
         "telegram": f"@{instructions.telegram}" if instructions.telegram else "",
         "phone": instructions.phone,
         "email": instructions.email,
@@ -614,7 +615,8 @@ def save_payments(
     bank: Annotated[list[str], Form()] = [],  # noqa: B006 - FastAPI copies form defaults
     holder: Annotated[list[str], Form()] = [],  # noqa: B006
     number: Annotated[list[str], Form()] = [],  # noqa: B006
-    price: Annotated[str, Form()] = "",
+    basic_price: Annotated[str, Form()] = "",
+    pro_price: Annotated[str, Form()] = "",
     telegram: Annotated[str, Form()] = "",
     phone: Annotated[str, Form()] = "",
     email: Annotated[str, Form()] = "",
@@ -635,7 +637,8 @@ def save_payments(
             services.admin.set_payment_instructions(
                 SetPaymentInstructionsCommand(
                     accounts=filled,
-                    price=price,
+                    basic_price=basic_price,
+                    pro_price=pro_price,
                     telegram=telegram,
                     phone=phone,
                     email=email,
@@ -646,7 +649,14 @@ def save_payments(
         except DomainError as exc:
             error = exc.message
     # Show what was typed, not what is stored, so nothing has to be entered twice.
-    typed = {"price": price, "telegram": telegram, "phone": phone, "email": email, "note": note}
+    typed = {
+        "basic_price": basic_price,
+        "pro_price": pro_price,
+        "telegram": telegram,
+        "phone": phone,
+        "email": email,
+        "note": note,
+    }
     return _payments_page(
         request,
         admin,

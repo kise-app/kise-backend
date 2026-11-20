@@ -11,3 +11,16 @@
 {% macro notice(text, kind="ok") -%}
 <div role="{{ 'alert' if kind == 'error' else 'status' }}" class="mb-6 rounded-xl border px-4 py-3 text-sm {{ 'border-red-300 bg-red-50 text-red-800' if kind == 'error' else 'border-forest-200/30 bg-forest-50 text-forest' }}">{{ text }}</div>
 {%- endmacro %}
+
+{#- Outline icons for the sidebar, 20px, drawn in currentColor. Decorative: the link text says it. -#}
+{% macro icon(name, size=20) -%}
+{%- set paths = {
+  "overview": "M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10",
+  "accounts": "M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M22 19v-1a4 4 0 0 0-3-3.87M16 3.13a3.5 3.5 0 0 1 0 6.75",
+  "payments": "M2 7h20v12H2zM2 11h20M6 15h4",
+  "admins": "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4",
+  "password": "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2",
+  "signout": "M15 17l5-5-5-5M20 12H9M12 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h7",
+} -%}
+<svg aria-hidden="true" focusable="false" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="{{ paths[name] }}"/></svg>
+{%- endmacro %}

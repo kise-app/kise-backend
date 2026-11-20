@@ -131,7 +131,8 @@ class SetPaymentInstructionsCommand:
     """How to pay for Pro. ``accounts`` are (bank, account name, account number) triples."""
 
     accounts: tuple[tuple[str, str, str], ...] = ()
-    price: str = ""
+    basic_price: str = ""
+    pro_price: str = ""
     telegram: str = ""
     phone: str = ""
     email: str = ""

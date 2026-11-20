@@ -206,7 +206,8 @@ class SqlAlchemyPaymentSettingsRepository:
                 PaymentAccount(bank=a["bank"], holder=a["holder"], number=a["number"])
                 for a in (row.accounts or [])
             ),
-            price=row.price or "",
+            basic_price=row.basic_price or "",
+            pro_price=row.pro_price or "",
             telegram=row.telegram or "",
             phone=row.phone or "",
             email=row.email or "",
@@ -222,7 +223,8 @@ class SqlAlchemyPaymentSettingsRepository:
             {"bank": a.bank, "holder": a.holder, "number": a.number}
             for a in instructions.accounts
         ]
-        row.price = instructions.price
+        row.basic_price = instructions.basic_price
+        row.pro_price = instructions.pro_price
         row.telegram = instructions.telegram
         row.phone = instructions.phone
         row.email = instructions.email

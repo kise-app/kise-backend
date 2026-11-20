@@ -517,7 +517,8 @@ def payment_form(client: TestClient, **fields) -> dict:
         "bank": ["Commercial Bank of Ethiopia", "telebirr", "", "", ""],
         "holder": ["Kise PLC", "Kise PLC", "", "", ""],
         "number": ["1000123456789", "0911234567", "", "", ""],
-        "price": "300 birr a month",
+        "basic_price": "100 birr a month",
+        "pro_price": "300 birr a month",
         "telegram": "https://t.me/kise_support",
         "phone": "+251 911 234 567",
         "email": "pay@kise.example",
@@ -560,7 +561,10 @@ def test_an_admin_sets_payment_details_and_the_app_shows_them(client: TestClient
             },
             {"bank": "telebirr", "holder": "Kise PLC", "number": "0911234567"},
         ],
-        "price": "300 birr a month",
+        "plans": [
+            {"plan": "basic", "price": "100 birr a month", "ai_enabled": False},
+            {"plan": "pro", "price": "300 birr a month", "ai_enabled": True},
+        ],
         "telegram": "kise_support",
         "telegram_url": "https://t.me/kise_support",
         "phone": "+251 911 234 567",
@@ -585,3 +589,32 @@ def test_bad_payment_details_are_explained_and_kept(client: TestClient, fields, 
     assert message in response.text
     assert 'value="300 birr a month"' in response.text, "what was typed is kept"
     assert "Not shown in the app yet" not in response.text
+
+
+# -- layout ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "current"),
+    [
+        (PORTAL, "Overview"),
+        (f"{PORTAL}/accounts", "Accounts"),
+        (f"{PORTAL}/payments", "Payments"),
+        (f"{PORTAL}/admins", "Admins"),
+    ],
+)
+def test_every_page_has_the_sidebar_with_its_own_link_marked(
+    client: TestClient, path: str, current: str
+):
+    signed_in_admin(client)
+    page = client.get(path).text
+    sidebar = page.split('data-testid="sidebar"')[1].split("</aside>")[0]
+    for label in ("Overview", "Accounts", "Payments", "Admins", "Your password", "Sign out"):
+        assert label in sidebar
+    marked = re.findall(r'aria-current="page">\s*<svg.*?</svg><span>([^<]+)</span>', sidebar, re.S)
+    assert marked == [current]
+    assert ADMIN in sidebar
+
+
+def test_the_sign_in_page_has_no_sidebar(client: TestClient):
+    assert 'data-testid="sidebar"' not in client.get(f"{PORTAL}/login").text
