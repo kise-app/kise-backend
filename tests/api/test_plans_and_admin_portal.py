@@ -862,14 +862,15 @@ def test_basic_can_be_given_scans_and_voice_but_not_typed_requests(
 def test_plan_cards_show_and_edit_the_allowance(client: TestClient):
     signed_in_admin(client)
     page = client.get(f"{PORTAL}/plans").text
-    basic = page.split('data-testid="allowance-basic"')[1].split("</dl>")[0]
-    assert "No scans" in basic and "No voice notes" in basic
-    assert "No limit on scans" in page.split('data-testid="allowance-pro"')[1].split("</dl>")[0]
+    basic = page.split('data-testid="allowance-basic"')[1].split("</ul>")[0]
+    assert "No receipt scans" in basic and "No voice notes" in basic
+    pro_list = page.split('data-testid="allowance-pro"')[1].split("</ul>")[0]
+    assert "Unlimited receipt scans" in pro_list
 
     saved = set_allowance(client, "pro", receipts="1,000", voice="200", price="300 birr a month")
     assert saved.status_code == 303
     pro = client.get(f"{PORTAL}/plans").text.split('data-testid="plan-card-pro"')[1]
-    assert "1,000 scans a month" in pro and "200 voice notes a month" in pro
+    assert "1,000 receipt scans a month" in pro and "200 voice notes a month" in pro
     assert "300 birr a month" in pro
 
 
@@ -946,7 +947,7 @@ def test_a_recording_of_unknown_length_is_held_to_a_size_limit(client: TestClien
 def test_the_plan_card_shows_and_checks_the_voice_length(client: TestClient):
     signed_in_admin(client)
     page = client.get(f"{PORTAL}/plans").text
-    assert "60 seconds" in page.split('data-testid="voice-seconds-pro"')[1][:30]
+    assert "Up to 60 seconds a voice note" in page.split('data-testid="voice-seconds-pro"')[1][:400]
     response = save_card(client, "pro", voice_seconds="600")
     assert response.status_code == 422
     assert "from 5 to 300 seconds" in response.text
@@ -991,7 +992,7 @@ def test_an_added_plan_gets_a_card_is_offered_in_the_app_and_can_be_given(
     assert added.status_code == 303
     assert added.headers["location"] == f"{PORTAL}/plans?saved=family"
     card = client.get(f"{PORTAL}/plans").text.split('data-testid="plan-card-family"')[1]
-    assert "500 birr a month" in card and "100 scans a month" in card
+    assert "500 birr a month" in card and "100 receipt scans a month" in card
     assert 'data-testid="remove-family"' in card
 
     offered = client.get("/api/plans/payment", headers=bearer(abebe)).json()["plans"]
